@@ -1,0 +1,213 @@
+<Window x:Class="AwakenedWarframeMarket.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Price Overlay"
+        Width="450" Height="400"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen"
+        KeyDown="Window_KeyDown"
+        MouseDown="Window_MouseDown">
+
+    <Window.Resources>
+        <!-- DataGrid Style -->
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="RowBackground" Value="Transparent"/>
+            <Setter Property="AlternatingRowBackground" Value="#11ffffff"/>
+            <Setter Property="GridLinesVisibility" Value="None"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="CanUserDeleteRows" Value="False"/>
+            <Setter Property="CanUserResizeRows" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="RowHeight" Value="28"/>
+        </Style>
+
+        <!-- Column Header Style -->
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#4a9eff"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+        </Style>
+
+        <!-- Cell Style -->
+        <Style TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="#e0e0e0"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridCell">
+                        <Border Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#22ffffff"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Row Style -->
+        <Style TargetType="DataGridRow">
+            <Setter Property="Background" Value="Transparent"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#15ffffff"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <!-- Main Container -->
+    <Border CornerRadius="8"
+            Background="#E6000000"
+            BorderBrush="#d4af37"
+            BorderThickness="2">
+        <Border.Effect>
+            <DropShadowEffect Color="Black"
+                              BlurRadius="20"
+                              ShadowDepth="0"
+                              Opacity="0.8"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="60"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="40"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Grid Grid.Row="0" Margin="15,10,10,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="ItemNameText"
+                               Text="Loading..."
+                               FontSize="18"
+                               FontWeight="Bold"
+                               Foreground="#d4af37"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="SubtitleText"
+                               Text=""
+                               FontSize="12"
+                               Foreground="#9e9e9e"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Content="✕"
+                        Style="{StaticResource CloseButton}"
+                        Click="CloseButton_Click"
+                        VerticalAlignment="Top"/>
+            </Grid>
+
+            <!-- Content Area -->
+            <Grid Grid.Row="1" Margin="10,5,10,5">
+                <!-- Loading State -->
+                <StackPanel x:Name="LoadingPanel"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Center"
+                            Visibility="Visible">
+                    <TextBlock x:Name="LoadingText"
+                               Text="Scanning item..."
+                               FontSize="14"
+                               Foreground="#9e9e9e"
+                               HorizontalAlignment="Center"/>
+                    <ProgressBar x:Name="LoadingProgress"
+                                 IsIndeterminate="True"
+                                 Width="200"
+                                 Height="3"
+                                 Margin="0,10,0,0"
+                                 Background="#333333"
+                                 Foreground="#4a9eff"/>
+                </StackPanel>
+
+                <!-- Error State -->
+                <StackPanel x:Name="ErrorPanel"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Center"
+                            Visibility="Collapsed">
+                    <TextBlock Text="⚠"
+                               FontSize="32"
+                               Foreground="#ff6b6b"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="ErrorText"
+                               Text="Error occurred"
+                               FontSize="14"
+                               Foreground="#ff6b6b"
+                               HorizontalAlignment="Center"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               Margin="20,10,20,0"/>
+                </StackPanel>
+
+                <!-- Data Grid -->
+                <DataGrid x:Name="PriceGrid"
+                          Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="PRICE"
+                                            Binding="{Binding PriceDisplay}"
+                                            Width="120">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#d4af37"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="RANK"
+                                            Binding="{Binding Rank}"
+                                            Width="60"/>
+                        <DataGridTextColumn Header="SELLER"
+                                            Binding="{Binding UserName}"
+                                            Width="120"/>
+                        <DataGridTextColumn Header="LISTED"
+                                            Binding="{Binding ListedTime}"
+                                            Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+
+            <!-- Footer -->
+            <Grid Grid.Row="2" Margin="15,0,15,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="Data from warframe.market"
+                           FontSize="11"
+                           Foreground="#9e9e9e"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Text="Press ESC to close"
+                           FontSize="11"
+                           Foreground="#4a9eff"
+                           VerticalAlignment="Center"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

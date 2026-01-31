@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AwakenedWarframeMarket", "AwakenedWarframeMarket.csproj", "{79CA8540-04B0-0AF9-C3E9-0005B9D9F67C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{79CA8540-04B0-0AF9-C3E9-0005B9D9F67C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79CA8540-04B0-0AF9-C3E9-0005B9D9F67C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79CA8540-04B0-0AF9-C3E9-0005B9D9F67C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79CA8540-04B0-0AF9-C3E9-0005B9D9F67C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {96576AA1-092D-4036-9AB0-05E29B22932D}
+	EndGlobalSection
+EndGlobal
