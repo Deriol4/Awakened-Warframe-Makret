@@ -1,5 +1,4 @@
 using System;
-using System.Drawing;
 using System.Threading.Tasks;
 
 namespace AwakenedWarframeMarket.Services;
@@ -13,6 +12,9 @@ public class PriceCheckService
     // Only one overlay at a time: a new price check replaces the open one
     private OverlayWindow? _current;
 
+    // True between the hotkey press and the moment the screenshot is taken; presses in that window are ignored
+    private bool _capturing;
+
     public PriceCheckService(ScreenCapture screenCapture, OCRService ocrService, WarframeMarketAPI marketApi)
     {
         _screenCapture = screenCapture;
@@ -23,27 +25,45 @@ public class PriceCheckService
     /// <summary>Called on the UI thread when the hotkey is pressed.</summary>
     public async Task CheckPriceAsync()
     {
-        // Close the previous overlay and let it disappear before grabbing the screen
-        if (_current != null)
-        {
-            _current.Close();
-            _current = null;
-            await Task.Delay(60);
-        }
+        if (_capturing)
+            return;
 
-        // Capture first: the overlay must not end up in the screenshot
-        Bitmap screenshot;
+        ItemCapture capture;
+        _capturing = true;
         try
         {
-            screenshot = _screenCapture.CaptureItemCell();
+            // Close the previous overlay and let it disappear before grabbing the screen
+            if (_current != null)
+            {
+                _current.Close();
+                _current = null;
+                await Task.Delay(60);
+            }
+
+            // Capture first: the overlay must not end up in the screenshot
+            capture = _screenCapture.CaptureItemCell();
         }
         catch (Exception ex)
         {
             System.Windows.MessageBox.Show($"Couldn't capture the screen: {ex.Message}", "Awakened Warframe Market");
             return;
         }
+        finally
+        {
+            _capturing = false;
+        }
 
-        var overlay = new OverlayWindow(_marketApi);
+        OverlayWindow overlay;
+        try
+        {
+            overlay = new OverlayWindow(_marketApi);
+        }
+        catch
+        {
+            capture.Dispose();
+            throw;
+        }
+
         _current = overlay;
         overlay.Closed += (_, _) =>
         {
@@ -55,11 +75,12 @@ public class PriceCheckService
 
         try
         {
-            // OCR in the background; the screenshot only lives in memory and is disposed right after
+            // OCR in the background; the screenshot only lives in memory and is disposed right after.
+            // If another check replaces this overlay meanwhile, the overlay ignores the late result.
             var itemName = await Task.Run(() =>
             {
-                using (screenshot)
-                    return _ocrService.RecognizeItemName(screenshot);
+                using (capture)
+                    return _ocrService.RecognizeItemName(capture.Image, capture.Cursor);
             });
 
             if (string.IsNullOrWhiteSpace(itemName))
@@ -74,7 +95,7 @@ public class PriceCheckService
 
             if (match == null && !_marketApi.CatalogueLoaded)
             {
-                overlay.ShowError("Couldn't reach warframe.market. Check your connection and try again.");
+                overlay.ShowError("Couldn't reach warframe.market. Check your internet connection and try again.");
                 return;
             }
 
@@ -88,7 +109,7 @@ public class PriceCheckService
         }
         catch (Exception ex)
         {
-            overlay.ShowError(ex.Message);
+            overlay.ShowError(FriendlyError.Describe(ex));
         }
     }
 }

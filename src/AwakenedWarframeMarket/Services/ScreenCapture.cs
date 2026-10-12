@@ -4,40 +4,39 @@ using System.Windows.Forms;
 
 namespace AwakenedWarframeMarket.Services;
 
+/// <summary>A screenshot around the cursor and where the cursor is inside it.</summary>
+public sealed record ItemCapture(Bitmap Image, Point Cursor) : IDisposable
+{
+    public void Dispose() => Image.Dispose();
+}
+
 public class ScreenCapture
 {
-    public Bitmap CaptureItemCell()
+    public ItemCapture CaptureItemCell()
     {
         var cursor = Cursor.Position;
-        var screen = Screen.FromPoint(cursor);
+        var screen = Screen.FromPoint(cursor).Bounds;
 
-        // Capture 11% width x 20% height of screen, cursor at center
-        int captureWidth = (int)(screen.Bounds.Width * 0.11);
-        int captureHeight = (int)(screen.Bounds.Height * 0.20);
+        // 11% of the screen width x 20% of its height, centered on the cursor
+        int width = (int)(screen.Width * 0.11);
+        int height = (int)(screen.Height * 0.20);
 
-        // Offset to center cursor in capture area
-        int offsetX = -captureWidth / 2;
-        int offsetY = -captureHeight / 2;
+        // Near a screen edge the area is shifted to stay on screen, so the cursor is no longer in its center
+        int x = Math.Clamp(cursor.X - width / 2, screen.Left, screen.Right - width);
+        int y = Math.Clamp(cursor.Y - height / 2, screen.Top, screen.Bottom - height);
 
-        int x = cursor.X + offsetX;
-        int y = cursor.Y + offsetY;
-
-        // Clamp to screen bounds
-        x = Math.Clamp(x, screen.Bounds.Left, screen.Bounds.Right - captureWidth);
-        y = Math.Clamp(y, screen.Bounds.Top, screen.Bounds.Bottom - captureHeight);
-
-        return CaptureRegion(x, y, captureWidth, captureHeight);
-    }
-
-    private Bitmap CaptureRegion(int x, int y, int width, int height)
-    {
         var bitmap = new Bitmap(width, height);
-
-        using (var graphics = Graphics.FromImage(bitmap))
+        try
         {
+            using var graphics = Graphics.FromImage(bitmap);
             graphics.CopyFromScreen(x, y, 0, 0, new Size(width, height));
         }
+        catch
+        {
+            bitmap.Dispose();
+            throw;
+        }
 
-        return bitmap;
+        return new ItemCapture(bitmap, new Point(cursor.X - x, cursor.Y - y));
     }
 }

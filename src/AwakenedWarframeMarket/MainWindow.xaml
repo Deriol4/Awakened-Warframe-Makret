@@ -67,7 +67,7 @@
                         <Button Style="{StaticResource OutlineButton}" Content="Settings" Margin="0,0,8,0" Click="SettingsButton_Click"/>
                         <Button Style="{StaticResource OutlineButton}" Content="Hide to tray" Click="MinimizeButton_Click"/>
                     </StackPanel>
-                    <TextBlock Text="warframe.market · PC" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="FooterText" Text="warframe.market · PC" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
                 </DockPanel>
             </Border>
 
@@ -92,7 +92,7 @@
                 <!-- Hotkey -->
                 <DockPanel Margin="2,18,2,0">
                     <Border DockPanel.Dock="Right" Style="{StaticResource Kbd}">
-                        <TextBlock x:Name="HotkeyText" Text="Ctrl + D" FontWeight="SemiBold" Foreground="{StaticResource AccentText}"/>
+                        <TextBlock x:Name="HotkeyText" Text="Alt + X" FontWeight="SemiBold" Foreground="{StaticResource AccentText}"/>
                     </Border>
                     <StackPanel>
                         <TextBlock Text="Price check" Foreground="{StaticResource TextStrong}"/>

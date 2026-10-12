@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -25,12 +26,19 @@ public class WarframeMarketAPI
     private DateTime _cacheTime;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromHours(1);
 
+    // One catalogue download at a time; after a failure wait a bit before hitting the site again
+    private Task<List<KeyedItem>?>? _catalogueLoad;
+    private DateTime _lastCatalogueFailure = DateTime.MinValue;
+    private static readonly TimeSpan FailureBackoff = TimeSpan.FromSeconds(30);
+
     public WarframeMarketAPI()
     {
-        _client = new HttpClient
+        _client = new HttpClient(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All })
         {
-            Timeout = TimeSpan.FromSeconds(10)
+            Timeout = TimeSpan.FromSeconds(20)
         };
+        var version = typeof(WarframeMarketAPI).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd($"AwakenedWarframeMarket/{version}");
         _client.DefaultRequestHeaders.Add("Accept", "application/json");
         // Platform is a required header on the v2 order endpoints
         _client.DefaultRequestHeaders.Add("Platform", "pc");
@@ -76,19 +84,28 @@ public class WarframeMarketAPI
 
         // 2. Closest by edit distance. The limit is ~20% of the text length: enough for a few OCR slips,
         //    too small to turn "... Systems Blueprint" into a different item.
-        int maxDistance = Math.Max(2, query.Length / 5);
+        //    Short names get a stricter limit: "Rage" vs "Rift" is two edits but a different mod.
+        int maxDistance = query.Length switch
+        {
+            <= 4 => 0,
+            <= 8 => 1,
+            _ => Math.Max(2, query.Length / 5)
+        };
         var ranked = items
             .Where(x => Math.Abs(x.Key.Length - query.Length) <= maxDistance)
             .Select(x => new { x.Item, Distance = LevenshteinDistance(query, x.Key) })
+            .Where(x => x.Distance <= maxDistance)
             .OrderBy(x => x.Distance)
             .ThenBy(x => x.Item.Name.Length)
-            .Take(1)
+            .Take(2)
             .ToList();
 
-        if (ranked.Count > 0 && ranked[0].Distance <= maxDistance)
-        {
+        // Two different items equally close: don't guess, let the player pick in the search
+        if (ranked.Count == 2 && ranked[0].Distance == ranked[1].Distance && ranked[0].Item.Slug != ranked[1].Item.Slug)
+            return null;
+
+        if (ranked.Count > 0)
             return new ItemMatch(ranked[0].Item, "fuzzy");
-        }
 
         // 3. OCR lost part of a long name: accept a containing name only if exactly one item contains the text
         var containing = items.Where(x => x.Key.Contains(query, StringComparison.Ordinal)).Take(2).ToList();
@@ -136,11 +153,23 @@ public class WarframeMarketAPI
         return best <= limit ? best + (best == prefix ? 0.5 : 0) : 1000;
     }
 
-    private async Task<List<KeyedItem>?> GetAllItemsAsync()
+    private Task<List<KeyedItem>?> GetAllItemsAsync()
     {
         if (_itemsCache != null && DateTime.Now - _cacheTime < _cacheExpiry)
-            return _itemsCache;
+            return Task.FromResult<List<KeyedItem>?>(_itemsCache);
 
+        // Recently failed: answer with what we have instead of retrying on every keystroke
+        if (DateTime.Now - _lastCatalogueFailure < FailureBackoff)
+            return Task.FromResult(_itemsCache);
+
+        // Callers arriving while a download is running share it (all on the UI thread, so no lock needed)
+        if (_catalogueLoad == null || _catalogueLoad.IsCompleted)
+            _catalogueLoad = LoadCatalogueAsync();
+        return _catalogueLoad;
+    }
+
+    private async Task<List<KeyedItem>?> LoadCatalogueAsync()
+    {
         try
         {
             var response = await _client.GetStringAsync($"{BaseUrl}/items");
@@ -157,14 +186,18 @@ public class WarframeMarketAPI
                 _itemsCache = parsed;
                 _cacheTime = DateTime.Now;
             }
-
-            return _itemsCache;
+            else
+            {
+                _lastCatalogueFailure = DateTime.Now;
+            }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error fetching items list: {ex.Message}");
-            return _itemsCache; // Return cached data if available
+            _lastCatalogueFailure = DateTime.Now;
         }
+
+        return _itemsCache; // stale data is better than none
     }
 
     // "Ash Prime  Neuroptics-Blueprint" -> "ash prime neuroptics blueprint"

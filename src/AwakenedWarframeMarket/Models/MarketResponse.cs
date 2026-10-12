@@ -39,6 +39,21 @@ public class MarketOrder
     [JsonProperty("rank")]
     public int? Rank { get; set; }
 
+    // Variant of the item, e.g. relic refinement "intact" / "radiant". Null for items without variants.
+    [JsonProperty("subtype")]
+    public string? Subtype { get; set; }
+
+    // Requiem mods and similar
+    [JsonProperty("charges")]
+    public int? Charges { get; set; }
+
+    // Ayatan sculptures
+    [JsonProperty("amberStars")]
+    public int? AmberStars { get; set; }
+
+    [JsonProperty("cyanStars")]
+    public int? CyanStars { get; set; }
+
     [JsonProperty("createdAt")]
     public DateTimeOffset CreatedAt { get; set; }
 
@@ -84,6 +99,19 @@ public class MarketItem
     [JsonProperty("ducats")]
     public int? Ducats { get; set; }
 
+    // Variants that are priced separately, e.g. relic refinements ["intact", "exceptional", "flawless", "radiant"]
+    [JsonProperty("subtypes")]
+    public List<string>? Subtypes { get; set; }
+
+    [JsonProperty("maxCharges")]
+    public int? MaxCharges { get; set; }
+
+    [JsonProperty("maxAmberStars")]
+    public int? MaxAmberStars { get; set; }
+
+    [JsonProperty("maxCyanStars")]
+    public int? MaxCyanStars { get; set; }
+
     // True for the "... Set" item itself
     [JsonProperty("setRoot")]
     public bool? SetRoot { get; set; }
@@ -120,6 +148,38 @@ public class MarketItem
 
     [JsonIgnore]
     public bool HasRanks => MaxRank is > 0;
+
+    [JsonIgnore]
+    public bool HasSubtypes => Subtypes is { Count: > 0 };
+
+    [JsonIgnore]
+    public bool HasCharges => MaxCharges is > 0;
+
+    [JsonIgnore]
+    public bool HasStars => MaxAmberStars is > 0 || MaxCyanStars is > 0;
+
+    /// <summary>Anything besides the price that tells this item's orders apart.</summary>
+    [JsonIgnore]
+    public bool HasDetails => HasRanks || HasSubtypes || HasCharges || HasStars;
+
+    /// <summary>"radiant" -> "Radiant", "small_fish" -> "Small Fish"</summary>
+    public static string SubtypeLabel(string subtype) =>
+        System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(subtype.Replace('_', ' '));
+
+    /// <summary>
+    /// What distinguishes an order besides the price, for the whisper: "Radiant", "rank 5", "3 charges",
+    /// "2 amber stars, 1 cyan star". Empty when the item has none of these.
+    /// </summary>
+    public string OrderQualifier(MarketOrder order)
+    {
+        var parts = new List<string>();
+        if (HasSubtypes && !string.IsNullOrEmpty(order.Subtype)) parts.Add(SubtypeLabel(order.Subtype));
+        if (HasRanks && order.Rank != null) parts.Add($"rank {order.Rank}");
+        if (HasCharges && order.Charges != null) parts.Add($"{order.Charges} charges");
+        if (HasStars && order.AmberStars != null) parts.Add($"{order.AmberStars} amber star{(order.AmberStars == 1 ? "" : "s")}");
+        if (HasStars && order.CyanStars != null) parts.Add($"{order.CyanStars} cyan star{(order.CyanStars == 1 ? "" : "s")}");
+        return string.Join(", ", parts);
+    }
 
     private MarketItemI18N? English =>
         I18N != null && I18N.TryGetValue("en", out var en) ? en : I18N?.Values.FirstOrDefault();

@@ -60,7 +60,7 @@
             <!-- Body -->
             <StackPanel Margin="18,18,18,20">
                 <TextBlock Text="Price check hotkey" Foreground="{StaticResource TextStrong}"/>
-                <TextBlock Text="Click the field and press a combination: Ctrl, Alt or Shift with a letter or digit, or an F-key"
+                <TextBlock Text="Click the field and press a combination: Ctrl or Alt with a letter or digit, or an F-key (e.g. Alt + X, Ctrl + F5)"
                            Style="{StaticResource Caption}" Margin="0,2,0,8" TextWrapping="Wrap"/>
 
                 <Button x:Name="HotkeyBox"
@@ -72,7 +72,7 @@
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource OutlineButton}"/>
                     </Button.Style>
-                    <TextBlock x:Name="HotkeyBoxText" Text="Ctrl + D" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource AccentText}"/>
+                    <TextBlock x:Name="HotkeyBoxText" Text="Alt + X" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource AccentText}"/>
                 </Button>
                 <TextBlock x:Name="HotkeyHint" Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
 

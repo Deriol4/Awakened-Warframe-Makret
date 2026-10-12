@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Tesseract;
@@ -23,50 +22,45 @@ public class OCRService : IDisposable
     private readonly string _tessdataPath;
     private bool _disposed;
 
+    // TesseractEngine is not thread-safe: one recognition at a time, and never during Dispose
+    private readonly object _engineLock = new();
+
     public OCRService()
     {
         _tessdataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata");
     }
 
-    public async Task InitializeAsync()
+    /// <summary>Loads the English model that ships next to the exe. Slow (a second or so), so it runs in the background.</summary>
+    public Task InitializeAsync() => Task.Run(() =>
     {
-        await EnsureTessdataExistsAsync();
-        _engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.Default);
-        _engine.SetVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '-");
-    }
+        if (!File.Exists(Path.Combine(_tessdataPath, "eng.traineddata")))
+            throw new FileNotFoundException("tessdata\\eng.traineddata is missing next to the app. Reinstall or rebuild the app.");
 
-    private async Task EnsureTessdataExistsAsync()
+        var engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.Default);
+        engine.SetVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '-");
+        lock (_engineLock)
+            _engine = engine;
+    });
+
+    /// <summary>The item name nearest to the cursor, or "" if nothing readable was found.</summary>
+    public string RecognizeItemName(Bitmap image, Point cursor)
     {
-        Directory.CreateDirectory(_tessdataPath);
-        var trainedDataPath = Path.Combine(_tessdataPath, "eng.traineddata");
-
-        if (!File.Exists(trainedDataPath))
-        {
-            System.Diagnostics.Debug.WriteLine("Downloading eng.traineddata...");
-
-            using var client = new HttpClient();
-            client.Timeout = TimeSpan.FromMinutes(5);
-
-            var url = "https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata";
-            var data = await client.GetByteArrayAsync(url);
-            await File.WriteAllBytesAsync(trainedDataPath, data);
-
-            System.Diagnostics.Debug.WriteLine("eng.traineddata downloaded successfully");
-        }
-    }
-
-    /// <summary>The item name under the cursor (the capture's center), or "" if nothing readable was found.</summary>
-    public string RecognizeItemName(Bitmap image)
-    {
-        if (_engine == null)
-            throw new InvalidOperationException("OCR engine not initialized. Call InitializeAsync first.");
-
         using var processed = PreprocessImage(image);
         using var pix = BitmapToPix(processed);
-        using var page = _engine.Process(pix);
 
-        var lines = ReadLines(page);
-        return PickItemNameBlock(lines, processed.Width, processed.Height)?.Name ?? "";
+        List<OcrLine> lines;
+        lock (_engineLock)
+        {
+            if (_disposed)
+                return "";
+            if (_engine == null)
+                throw new InvalidOperationException("OCR engine not initialized. Call InitializeAsync first.");
+
+            using var page = _engine.Process(pix);
+            lines = ReadLines(page);
+        }
+
+        return PickItemNameBlock(lines, cursor)?.Name ?? "";
     }
 
     private Bitmap PreprocessImage(Bitmap original)
@@ -152,10 +146,10 @@ public class OCRService : IDisposable
 
     /// <summary>
     /// Long names wrap onto several lines ("Hildryn Prime / Neuroptics / Blueprint"), so lines are first grouped
-    /// into blocks. The label of an inventory cell is always at or below the cursor (the cursor is at the
-    /// image center), so blocks that lie entirely above the cursor belong to the cell above and are skipped.
+    /// into blocks. The label of an inventory cell is always at or below the cursor, so blocks that lie
+    /// entirely above the cursor belong to the cell above and are skipped.
     /// </summary>
-    private static NameBlock? PickItemNameBlock(List<OcrLine> lines, int imageWidth, int imageHeight)
+    private static NameBlock? PickItemNameBlock(List<OcrLine> lines, Point cursor)
     {
         var usable = lines
             .Where(l => l.RejectedReason == null)
@@ -176,8 +170,8 @@ public class OCRService : IDisposable
                 blocks.Add(new List<OcrLine> { line });
         }
 
-        int centerX = imageWidth / 2;
-        int centerY = imageHeight / 2;
+        int centerX = cursor.X;
+        int centerY = cursor.Y;
 
         var candidates = blocks
             .Select(b => new { Lines = b, Bounds = UnionBounds(b) })
@@ -232,10 +226,14 @@ public class OCRService : IDisposable
 
     public void Dispose()
     {
-        if (!_disposed)
+        lock (_engineLock)
         {
-            _engine?.Dispose();
-            _disposed = true;
+            if (!_disposed)
+            {
+                _engine?.Dispose();
+                _engine = null;
+                _disposed = true;
+            }
         }
         GC.SuppressFinalize(this);
     }

@@ -507,6 +507,14 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
+                        <!-- Variant picker: relic refinement and other separately priced variants -->
+                        <Border x:Name="VariantPanel" Margin="0,12,0,0" Padding="10,6" CornerRadius="6" Background="{StaticResource Surface}" Visibility="Collapsed">
+                            <DockPanel>
+                                <TextBlock x:Name="VariantLabel" DockPanel.Dock="Left" Text="Refinement" FontSize="12" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <WrapPanel x:Name="VariantChips" Orientation="Horizontal"/>
+                            </DockPanel>
+                        </Border>
+
                         <!-- Rank picker (mods, arcanes) -->
                         <Border x:Name="RankPanel" Margin="0,12,0,0" Padding="10,8" CornerRadius="6" Background="{StaticResource Surface}" Visibility="Collapsed">
                             <DockPanel>
@@ -554,7 +562,7 @@
                             </Border>
                             <Border Grid.Column="4" Background="{StaticResource Surface}" CornerRadius="6" Padding="8,6">
                                 <StackPanel>
-                                    <TextBlock Style="{StaticResource StatLabel}" Text="Sellers found"/>
+                                    <TextBlock Style="{StaticResource StatLabel}" Text="Listings"/>
                                     <TextBlock x:Name="StatTotal" Style="{StaticResource StatValue}"/>
                                 </StackPanel>
                             </Border>
@@ -615,7 +623,7 @@
                     <TextBlock DockPanel.Dock="Right" Text="LISTED" Width="60" TextAlignment="Right"/>
                     <TextBlock DockPanel.Dock="Left" Text="PRICE" Width="62"/>
                     <TextBlock DockPanel.Dock="Left" Text="QTY" Width="40"/>
-                    <TextBlock x:Name="RankHeader" DockPanel.Dock="Left" Text="RANK" Width="44" Visibility="Collapsed"/>
+                    <TextBlock x:Name="DetailHeader" DockPanel.Dock="Left" Text="RANK" Width="44" Visibility="Collapsed"/>
                     <TextBlock Text="SELLER"/>
                 </DockPanel>
 
@@ -677,6 +685,7 @@
                                                     Width="64"
                                                     Height="26"
                                                     Margin="6,0,3,0"
+                                                    Focusable="False"
                                                     ToolTip="{Binding CopyTooltip}"
                                                     AutomationProperties.Name="{Binding CopyTooltip}"
                                                     Click="Buy_Click">
@@ -717,17 +726,21 @@
                                             <Button Style="{StaticResource FlatButton}"
                                                     Padding="10,6"
                                                     HorizontalContentAlignment="Stretch"
+                                                    Focusable="False"
                                                     Click="Row_Click">
                                                 <DockPanel>
                                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Listed}" Width="60" TextAlignment="Right" FontSize="12" Foreground="{StaticResource Muted}"/>
                                                     <TextBlock x:Name="PriceText" DockPanel.Dock="Left" Text="{Binding Price}" Width="62" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
                                                     <TextBlock DockPanel.Dock="Left" Text="{Binding Quantity}" Width="40"/>
-                                                    <TextBlock x:Name="RankText"
+                                                    <TextBlock x:Name="DetailText"
                                                                DockPanel.Dock="Left"
-                                                               Text="{Binding RankText}"
-                                                               Width="44"
+                                                               Text="{Binding DetailText}"
+                                                               Width="{Binding DetailWidth}"
+                                                               Padding="0,0,6,0"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding DetailText}"
                                                                Foreground="{StaticResource Soft}"
-                                                               Visibility="{Binding ShowRank, Converter={StaticResource BoolToVis}}"/>
+                                                               Visibility="{Binding ShowDetails, Converter={StaticResource BoolToVis}}"/>
                                                     <DockPanel>
                                                         <Ellipse x:Name="StatusDot"
                                                                  DockPanel.Dock="Left"
@@ -760,7 +773,7 @@
                                             <Setter TargetName="UserText" Property="Foreground" Value="{StaticResource Muted}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsMaxRank}" Value="True">
-                                            <Setter TargetName="RankText" Property="Foreground" Value="{StaticResource AccentText}"/>
+                                            <Setter TargetName="DetailText" Property="Foreground" Value="{StaticResource AccentText}"/>
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsSelected}" Value="True">
                                             <Setter TargetName="RowBorder" Property="Background" Value="{StaticResource Selected}"/>

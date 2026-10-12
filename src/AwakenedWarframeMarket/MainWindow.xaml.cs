@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using AwakenedWarframeMarket.Models;
@@ -16,6 +17,10 @@ public partial class MainWindow : Window
     private PriceCheckService? _priceCheckService;
     private Settings _settings;
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
+    private System.Drawing.Icon? _trayIcon;
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr handle);
 
     private bool _ready;               // OCR initialised, price checks possible
     private bool _hotkeyUnavailable;   // another app owns the key combination
@@ -38,6 +43,10 @@ public partial class MainWindow : Window
 
         SetupTrayIcon();
         UpdateHotkeyDisplay();
+
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        if (version != null)
+            FooterText.Text = $"v{version.ToString(3)} · warframe.market · PC";
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -63,9 +72,21 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            _startupError = ex.Message;
+            _startupError = DescribeStartupError(ex);
             UpdateStatus();
         }
+    }
+
+    // Tesseract needs its native DLLs, and those need the Visual C++ runtime; without it the load fails
+    private static string DescribeStartupError(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException)
+        {
+            if (e is DllNotFoundException or BadImageFormatException ||
+                e.Message.Contains("Failed to find library", StringComparison.OrdinalIgnoreCase))
+                return "Install the Microsoft Visual C++ Redistributable (x64) and restart the app.";
+        }
+        return ex.Message;
     }
 
     // ---- Hotkey ----------------------------------------------------------------------
@@ -117,7 +138,7 @@ public partial class MainWindow : Window
         var hotkey = HotkeyText.Text;
 
         if (_startupError != null)
-            SetStatus("Danger", "Couldn't start", $"Text recognition failed to load: {_startupError}");
+            SetStatus("Danger", "Couldn't start", $"Text recognition failed to load. {_startupError}");
         else if (!_ready)
             SetStatus("Muted", "Starting…", "Preparing text recognition");
         else if (_hotkeyUnavailable)
@@ -183,12 +204,28 @@ public partial class MainWindow : Window
         };
 
         // Simple generated icon: gold square with a "W"
-        using var bitmap = new System.Drawing.Bitmap(32, 32);
-        using var g = System.Drawing.Graphics.FromImage(bitmap);
-        g.Clear(System.Drawing.Color.FromArgb(200, 167, 90));
-        g.DrawString("W", new System.Drawing.Font("Arial", 18, System.Drawing.FontStyle.Bold),
-            System.Drawing.Brushes.Black, 4, 2);
-        _notifyIcon.Icon = System.Drawing.Icon.FromHandle(bitmap.GetHicon());
+        using (var bitmap = new System.Drawing.Bitmap(32, 32))
+        {
+            using (var g = System.Drawing.Graphics.FromImage(bitmap))
+            using (var font = new System.Drawing.Font("Arial", 18, System.Drawing.FontStyle.Bold))
+            {
+                g.Clear(System.Drawing.Color.FromArgb(200, 167, 90));
+                g.DrawString("W", font, System.Drawing.Brushes.Black, 4, 2);
+            }
+
+            // GetHicon creates a native handle that must be freed; the clone owns its own copy
+            var handle = bitmap.GetHicon();
+            try
+            {
+                using var temp = System.Drawing.Icon.FromHandle(handle);
+                _trayIcon = (System.Drawing.Icon)temp.Clone();
+            }
+            finally
+            {
+                DestroyIcon(handle);
+            }
+        }
+        _notifyIcon.Icon = _trayIcon;
 
         _notifyIcon.DoubleClick += (s, e) => ShowFromTray();
 
@@ -204,7 +241,7 @@ public partial class MainWindow : Window
         _notifyIcon.ContextMenuStrip = contextMenu;
     }
 
-    private void ShowFromTray()
+    public void ShowFromTray()
     {
         Show();
         WindowState = WindowState.Normal;
@@ -217,13 +254,6 @@ public partial class MainWindow : Window
         _hotkeyManager.Dispose();
         _ocrService.Dispose();
         _notifyIcon?.Dispose();
-    }
-
-    public void UpdateSettings(Settings newSettings)
-    {
-        _settings = newSettings;
-        UpdateHotkeyDisplay();
-        _hotkeyManager.Unregister();
-        UpdateHotkeyRegistration();
+        _trayIcon?.Dispose();
     }
 }

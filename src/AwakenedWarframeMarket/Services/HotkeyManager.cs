@@ -11,6 +11,33 @@ public class HotkeyManager : IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
     private const int HOTKEY_ID = 9000;
+    private const uint MOD_NOREPEAT = 0x4000;
+
+    public const ModifierKeys DefaultModifiers = ModifierKeys.Alt;
+    public const Key DefaultKey = Key.X;
+
+    /// <summary>
+    /// Why a combination can't be used as the price-check hotkey, or null if it's fine.
+    /// The hotkey is held while Warframe is in front, so it must not collide with typing or movement.
+    /// </summary>
+    public static string? ValidationError(ModifierKeys modifiers, Key key)
+    {
+        bool letterOrDigit = key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9;
+        bool functionKey = key is >= Key.F1 and <= Key.F12;
+
+        if (!letterOrDigit && !functionKey)
+            return "Use a letter, a digit or an F-key";
+        if (key == Key.F12)
+            return "F12 is reserved by Windows";
+        if (key == Key.F4 && modifiers.HasFlag(ModifierKeys.Alt))
+            return "Alt + F4 closes windows";
+        if (letterOrDigit && !modifiers.HasFlag(ModifierKeys.Control) && !modifiers.HasFlag(ModifierKeys.Alt))
+            return "Add Ctrl or Alt: a letter alone or with Shift fires while you type in chat";
+        if (key is Key.W or Key.A or Key.S or Key.D &&
+            (modifiers.HasFlag(ModifierKeys.Control) || modifiers.HasFlag(ModifierKeys.Shift)))
+            return "Ctrl or Shift with W, A, S, D fires while you crouch or sprint in the game";
+        return null;
+    }
 
     [DllImport("user32.dll")]
     private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -54,6 +81,7 @@ public class HotkeyManager : IDisposable
         if (modifiers.HasFlag(ModifierKeys.Control)) mod |= 0x0002;
         if (modifiers.HasFlag(ModifierKeys.Shift)) mod |= 0x0004;
         if (modifiers.HasFlag(ModifierKeys.Windows)) mod |= 0x0008;
+        mod |= MOD_NOREPEAT; // holding the keys must not fire a burst of price checks
 
         uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
 
@@ -71,14 +99,6 @@ public class HotkeyManager : IDisposable
         }
     }
 
-    public bool UpdateHotkey(ModifierKeys modifiers, Key key)
-    {
-        if (_hotkeyAction == null)
-            throw new InvalidOperationException("No hotkey action registered");
-
-        return RegisterHotkey(modifiers, key, _hotkeyAction);
-    }
-
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
@@ -93,7 +113,7 @@ public class HotkeyManager : IDisposable
     public static ModifierKeys ParseModifier(string modifier)
     {
         if (string.IsNullOrWhiteSpace(modifier))
-            return ModifierKeys.Control;
+            return DefaultModifiers;
 
         var result = ModifierKeys.None;
         foreach (var part in modifier.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -113,7 +133,7 @@ public class HotkeyManager : IDisposable
                 case "none":
                     break;
                 default:
-                    return ModifierKeys.Control; // unknown value in settings.json: fall back to the default
+                    return DefaultModifiers; // unknown value in settings.json: fall back to the default
             }
         }
         return result;
@@ -141,7 +161,7 @@ public class HotkeyManager : IDisposable
     {
         if (Enum.TryParse<Key>(key, true, out var result))
             return result;
-        return Key.D;
+        return DefaultKey;
     }
 
     public static string ModifierToString(ModifierKeys modifiers)

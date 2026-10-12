@@ -71,19 +71,10 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        bool isLetterOrDigit = key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9;
-        bool isFunctionKey = key is >= Key.F1 and <= Key.F12;
-
-        if (!isLetterOrDigit && !isFunctionKey)
+        var error = HotkeyManager.ValidationError(modifiers, key);
+        if (error != null)
         {
-            ShowHint("Use a letter, a digit or an F-key");
-            return;
-        }
-
-        // A plain letter or digit would fire while typing in chat; require a modifier for those
-        if (isLetterOrDigit && modifiers == ModifierKeys.None)
-        {
-            ShowHint("Add Ctrl, Alt or Shift so the hotkey doesn't fire while you type");
+            ShowHint(error);
             return;
         }
 
@@ -115,12 +106,26 @@ public partial class SettingsWindow : Window
 
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
-        _settings.HotkeyModifier = HotkeyManager.ModifierToSetting(_modifiers);
-        _settings.HotkeyKey = _key.ToString();
-        _settings.OnlyInWarframe = OnlyInWarframeCheckBox.IsChecked ?? true;
+        var updated = new Settings
+        {
+            Version = Settings.CurrentVersion,
+            HotkeyModifier = HotkeyManager.ModifierToSetting(_modifiers),
+            HotkeyKey = _key.ToString(),
+            OnlyInWarframe = OnlyInWarframeCheckBox.IsChecked ?? true
+        };
 
-        _settingsManager.SaveSettings(_settings);
+        // Keep the dialog open if the file can't be written, instead of silently losing the change
+        var error = _settingsManager.SaveSettings(updated);
+        if (error != null)
+        {
+            ShowHint(error);
+            return;
+        }
 
+        _settings.Version = updated.Version;
+        _settings.HotkeyModifier = updated.HotkeyModifier;
+        _settings.HotkeyKey = updated.HotkeyKey;
+        _settings.OnlyInWarframe = updated.OnlyInWarframe;
         DialogResult = true;
     }
 

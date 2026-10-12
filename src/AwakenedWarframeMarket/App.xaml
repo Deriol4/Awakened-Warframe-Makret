@@ -1,7 +1,6 @@
 <Application x:Class="AwakenedWarframeMarket.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <!-- Palette shared by the main and settings windows (the overlay keeps the same values) -->
         <SolidColorBrush x:Key="Bg" Color="#1B1F24"/>

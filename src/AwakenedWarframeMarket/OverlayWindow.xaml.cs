@@ -35,7 +35,11 @@ public partial class OverlayWindow : Window
     private List<Suggestion> _suggestions = new();
 
     private bool _isClosed;
+    private bool _isClosing;         // fading out: don't take focus back
+    private string? _pendingSlug;    // set part being loaded; _item is null meanwhile
     private int? _rank;              // null = any rank
+    private string? _subtype;        // relic refinement etc.; null = any
+    private const string AnySubtype = "*any*";
     private string _filter = "ingame";  // all | online | ingame; "In game" first: those sellers can trade right now
     private string _sort = "price";  // price | price-desc | rank | newest
     private string? _selectedOrderId;
@@ -56,6 +60,8 @@ public partial class OverlayWindow : Window
 
     public void ShowLoading(string title, string subtitle)
     {
+        if (_isClosed)
+            return;
         ShowPanel(LoadingPanel);
         LoadingTitle.Text = title;
         LoadingSubtitle.Text = subtitle;
@@ -64,6 +70,8 @@ public partial class OverlayWindow : Window
     public void ShowError(string message)
     {
         _version++;
+        if (_isClosed)
+            return;
         ShowPanel(ErrorPanel);
         ErrorText.Text = message;
     }
@@ -72,6 +80,8 @@ public partial class OverlayWindow : Window
     public void ShowSearch(string ocrText, string title)
     {
         _version++;
+        if (_isClosed)
+            return;
         ShowPanel(SearchPanel);
         SearchTitle.Text = title;
         SearchOcrRun.Text = string.IsNullOrWhiteSpace(ocrText) ? "nothing" : $"“{ocrText}”";
@@ -91,6 +101,9 @@ public partial class OverlayWindow : Window
     /// <summary>Load the item, its set (for the part switcher) and its sellers.</summary>
     public async Task LoadItemAsync(MarketItem item)
     {
+        if (_isClosed || _isClosing)
+            return;
+
         int version = ++_version;
         ShowLoading("Loading sellers", item.Name);
 
@@ -110,7 +123,7 @@ public partial class OverlayWindow : Window
         catch (Exception ex)
         {
             if (version == _version)
-                ShowError($"Couldn't load sellers for {item.Name}.\n{ex.Message}");
+                ShowError($"Couldn't load sellers for {item.Name}.\n{FriendlyError.Describe(ex)}");
         }
     }
 
@@ -188,9 +201,10 @@ public partial class OverlayWindow : Window
 
     private void CloseWithAnimation()
     {
-        if (_isClosed)
+        if (_isClosed || _isClosing)
             return;
 
+        _isClosing = true;
         _version++;
         var fadeOut = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(120));
         fadeOut.Completed += (_, _) =>
@@ -205,6 +219,10 @@ public partial class OverlayWindow : Window
     {
         _isClosed = true;
         _version++;
+
+        // Stop endless animations, otherwise the closed window keeps the render loop busy and stays in memory
+        LoadingBarShift.BeginAnimation(TranslateTransform.XProperty, null);
+        BeginAnimation(OpacityProperty, null);
         base.OnClosed(e);
     }
 
@@ -260,13 +278,20 @@ public partial class OverlayWindow : Window
 
     private async void Part_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not SetPart part || part.Item.Slug == _item?.Slug)
+        if ((sender as FrameworkElement)?.DataContext is not SetPart part || part.Item.Slug == (_pendingSlug ?? _item?.Slug))
             return;
 
         int version = ++_version;
         MarkSelectedPart(part.Item.Slug);
         SetHeader(part.Item);
+
+        // Until the new orders arrive, show nothing of the previous item (B, T and filters do nothing meanwhile)
+        _pendingSlug = part.Item.Slug;
+        _item = null;
+        _orders = new List<MarketOrder>();
+        _rows = new List<OrderRow>();
         RowsList.ItemsSource = null;
+        ClearStats();
         ShowListMessage("Loading sellers…");
 
         try
@@ -279,18 +304,20 @@ public partial class OverlayWindow : Window
         catch (Exception ex)
         {
             if (version == _version)
-                ShowListMessage($"Couldn't load sellers.\n{ex.Message}");
+                ShowListMessage($"Couldn't load sellers.\n{FriendlyError.Describe(ex)}");
         }
     }
 
     private void ShowItem(MarketItem item, List<MarketOrder> orders)
     {
-        if (_isClosed)
+        if (_isClosed || _isClosing)
             return;
 
+        _pendingSlug = null;
         _item = item;
         _orders = orders;
         _rank = null;
+        _subtype = item.HasSubtypes ? item.Subtypes![0] : null;
         _selectedOrderId = null;
         _copiedOrderId = null;
         if (_sort == "rank" && !item.HasRanks)
@@ -304,6 +331,15 @@ public partial class OverlayWindow : Window
         Focus();
     }
 
+    private void ClearStats()
+    {
+        StatLow.Text = StatMedian.Text = StatTotal.Text = StatInGame.Text = "—";
+        FilterAllButton.Content = "All";
+        FilterOnlineButton.Content = "Online";
+        FilterInGameButton.Content = "In game";
+        UpdateFooter();
+    }
+
     private void SetHeader(MarketItem item)
     {
         TitleText.Text = item.Name;
@@ -314,8 +350,47 @@ public partial class OverlayWindow : Window
         SubtitleText.Text = item.HasRanks ? $"Ranks 0–{item.MaxRank}" : "";
         SubtitleText.Visibility = rankVisibility;
         RankPanel.Visibility = rankVisibility;
-        RankHeader.Visibility = rankVisibility;
         SortRankOption.Visibility = rankVisibility;
+
+        DetailHeader.Visibility = item.HasDetails ? Visibility.Visible : Visibility.Collapsed;
+        DetailHeader.Width = OrderRow.DetailColumnWidth(item);
+        DetailHeader.Text = item.HasRanks && !item.HasSubtypes && !item.HasCharges && !item.HasStars ? "RANK"
+            : item.HasSubtypes && !item.HasRanks && !item.HasCharges && !item.HasStars ? "TYPE"
+            : "DETAILS";
+
+        BuildVariantChips(item);
+    }
+
+    /// <summary>One chip per separately priced variant (Intact, Exceptional, Flawless, Radiant...) plus Any.</summary>
+    private void BuildVariantChips(MarketItem item)
+    {
+        VariantChips.Children.Clear();
+        VariantPanel.Visibility = item.HasSubtypes ? Visibility.Visible : Visibility.Collapsed;
+        if (!item.HasSubtypes)
+            return;
+
+        VariantLabel.Text = item.Subtypes!.Any(s => s is "intact" or "radiant") ? "Refinement" : "Type";
+        foreach (var subtype in item.Subtypes!.Cast<string?>().Append(null))
+        {
+            var chip = new Button
+            {
+                Content = subtype == null ? "Any" : MarketItem.SubtypeLabel(subtype),
+                Tag = subtype ?? AnySubtype,
+                Style = (Style)FindResource("ChipButton"),
+                Margin = new Thickness(0, 2, 4, 2),
+                Focusable = false
+            };
+            chip.Click += VariantChip_Click;
+            VariantChips.Children.Add(chip);
+        }
+    }
+
+    private void VariantChip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_item == null || (sender as Button)?.Tag is not string tag)
+            return;
+        _subtype = tag == AnySubtype ? null : tag;
+        Refresh();
     }
 
     /// <summary>Rebuild stats, filter counts and the seller list from the current state.</summary>
@@ -325,7 +400,10 @@ public partial class OverlayWindow : Window
             return;
 
         int? max = _item.MaxRank;
-        var matching = _orders.Where(o => _rank == null || o.Rank == _rank).ToList();
+        var matching = _orders
+            .Where(o => _rank == null || o.Rank == _rank)
+            .Where(o => _subtype == null || o.Subtype == _subtype)
+            .ToList();
         var inGame = matching.Where(o => o.User?.Status == "ingame").ToList();
         var online = matching.Where(o => o.User?.Status is "ingame" or "online").ToList();
 
@@ -352,6 +430,9 @@ public partial class OverlayWindow : Window
             StyleChip(RankMaxButton, _rank == m);
         }
 
+        foreach (var chip in VariantChips.Children.OfType<Button>())
+            StyleChip(chip, (chip.Tag as string) == (_subtype ?? AnySubtype));
+
         SortText.Text = SortLabel(_sort);
 
         var shown = _filter switch
@@ -369,7 +450,8 @@ public partial class OverlayWindow : Window
             _ => shown.OrderBy(o => o.Platinum).ThenBy(StatusOrder)
         };
 
-        _rows = sorted.Select((o, i) => new OrderRow(o, max, i % 2 == 1)).ToList();
+        var item = _item;
+        _rows = sorted.Select((o, i) => new OrderRow(o, item, i % 2 == 1)).ToList();
 
         var selected = _rows.FirstOrDefault(r => r.Order.Id == _selectedOrderId)
                        ?? _rows.FirstOrDefault(r => r.Status == "ingame")
@@ -387,8 +469,8 @@ public partial class OverlayWindow : Window
 
         if (_rows.Count > 0)
             ShowListMessage(null);
-        else if (matching.Count == 0 && _rank != null)
-            ShowListMessage("No sellers with this rank. Try Any.");
+        else if (matching.Count == 0 && (_rank != null || _subtype != null))
+            ShowListMessage("No sellers for this choice. Try Any.");
         else if (matching.Count == 0)
             ShowListMessage("Nobody is selling this item right now.");
         else
@@ -559,7 +641,9 @@ public partial class OverlayWindow : Window
     /// <summary>The same message warframe.market copies for "Buy".</summary>
     public static string BuildWhisper(MarketOrder order, MarketItem item)
     {
-        var name = item.HasRanks && order.Rank != null ? $"{item.Name} (rank {order.Rank})" : item.Name;
+        // "Lith A1 Relic (Radiant)", "Corrosive Projection (rank 5)"
+        var qualifier = item.OrderQualifier(order);
+        var name = qualifier.Length == 0 ? item.Name : $"{item.Name} ({qualifier})";
         return $"/w {order.User?.IngameName} Hi! I want to buy: \"{name}\" for {order.Platinum} platinum. (warframe.market)";
     }
 
@@ -626,10 +710,13 @@ public partial class OverlayWindow : Window
             _suggestions[0].IsSelected = true;
 
         SuggestionList.ItemsSource = _suggestions;
+        SuggestionEmpty.Text = _api.CatalogueLoaded
+            ? "No items match. Check the spelling."
+            : "Can't load the item list: no connection to warframe.market";
         SuggestionEmpty.Visibility = _suggestions.Count == 0 && text.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void SearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    private async void SearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key is Key.Down or Key.Up && _suggestions.Count > 0)
         {
@@ -641,10 +728,28 @@ public partial class OverlayWindow : Window
         }
         else if (e.Key == Key.Enter)
         {
+            e.Handled = true;
             var pick = _suggestions.FirstOrDefault(s => s.IsSelected);
             if (pick != null)
+            {
                 _ = LoadItemAsync(pick.Item);
-            e.Handled = true;
+                return;
+            }
+
+            // Enter pressed before the suggestions arrived: look the text up right away
+            var text = SearchBox.Text;
+            if (text.Trim().Length == 0)
+                return;
+            try
+            {
+                var items = await _api.SuggestAsync(text, 1);
+                if (items.Count > 0 && !_isClosed && SearchBox.Text == text)
+                    _ = LoadItemAsync(items[0]);
+            }
+            catch
+            {
+                // the empty-result text already explains what went wrong
+            }
         }
     }
 

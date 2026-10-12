@@ -4,19 +4,21 @@ Check what an item is worth on [warframe.market](https://warframe.market) withou
 
 ## Features
 
-- **One key**: hover an item in your inventory or on a vendor screen (like Nightwave offerings) and press `Ctrl+D` (you can change it)
+- **One key**: hover an item in your inventory or on a vendor screen (like Nightwave offerings) and press `Alt+X` (you can change it)
 - **All sellers**: price, quantity, rank and listing age for every seller, filtered by In game / Online / All
 - **Summary**: lowest and median price among sellers in game, how many sellers there are and how many are in game now
 - **Ranks**: pick the rank you're after for mods and arcanes ("Rank 3 of 5"), or Any / Max
+- **Variants**: relics are priced per refinement (Intact … Radiant), and the overlay lets you switch between them; charges and Ayatan stars are shown too
 - **Sets**: switch between the whole set and each of its parts right in the overlay
-- **Buy**: one click copies the same whisper warframe.market gives you, ready to paste into the game chat
+- **Buy**: one click copies a whisper in the same format as warframe.market, ready to paste into the game chat
 - **Manual search**: if the name can't be read, type it and pick from the closest items
 - **Stays out of the way**: the hotkey only works while Warframe is in front, the overlay closes when you click back into the game, and the app sits quietly in the tray
 
 ## Requirements
 
-- Windows 10 or 11
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
+- Windows 10 or 11, 64-bit
+- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (x64)
+- [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist): text recognition needs it. Most PCs with games already have it
 - Warframe in **windowed** or **borderless fullscreen** mode: Windows can't show other windows on top of exclusive fullscreen
 - Warframe interface language set to **English**: names are read from the screen and looked up in the English item list
 - PC prices only, for now
@@ -25,14 +27,13 @@ Check what an item is worth on [warframe.market](https://warframe.market) withou
 
 1. Download the latest release (or [build from source](#building-from-source))
 2. Extract it to any folder
-3. Run `AwakenedWarframeMarket.exe`
-4. On the first run the app downloads the text recognition data for English (about 23 MB), so it needs an internet connection
+3. Run `AwakenedWarframeMarket.exe`. Running it again just brings the open copy to the front
 
 ## Usage
 
 1. Start Warframe and the app (it can stay in the tray)
 2. Hover an item: put the cursor **in the middle of the item's picture**, not on its name. The name is read from the bottom of the item's cell, and a cursor on top of the text hides part of it
-3. Press `Ctrl+D` (or your own hotkey)
+3. Press `Alt+X` (or your own hotkey)
 4. The overlay opens next to the item with its sellers
 
 ### Keys in the overlay
@@ -53,9 +54,9 @@ The overlay closes by itself when it loses focus: when you click back into the g
 Open **Settings** in the app window:
 
 - **Price check hotkey**: click the field and press the combination you want
-  - Ctrl, Alt and/or Shift together with a letter or a digit, e.g. `Ctrl + D`, `Ctrl + Shift + 1`
-  - or F1-F12, alone or with modifiers
-  - a letter or digit without Ctrl, Alt or Shift isn't allowed, it would fire while you type in chat
+  - Ctrl or Alt (Shift optional) together with a letter or a digit, e.g. `Alt + X`, `Ctrl + Shift + 1`
+  - or an F-key, alone or with modifiers, e.g. `F6`, `Ctrl + F5`
+  - not allowed: a letter or digit without Ctrl or Alt (it would fire while you type in chat), Ctrl/Shift with W, A, S or D (you hold those while moving), `Alt + F4` and `F12` (Windows and Steam use them)
 - **Only while Warframe is in front** (on by default): the app only takes the hotkey while Warframe or the app itself is in front, so other programs can use the same keys the rest of the time
 
 ## Troubleshooting
@@ -67,7 +68,7 @@ The app window shows its status at the top, which explains most problems:
 | **Ready** | Everything works |
 | **Waiting for Warframe** | The hotkey is paused because Warframe isn't the active window. Click into the game |
 | **Hotkey unavailable** | Another program already uses this combination. Pick another one in Settings |
-| **Couldn't start** | Text recognition couldn't load, usually because the first-run download failed. Check your connection and restart the app |
+| **Couldn't start** | Text recognition couldn't load. Usually the Visual C++ Redistributable (x64) is missing: install it and restart the app |
 
 In the overlay:
 
@@ -101,7 +102,7 @@ For the curious, here is what happens after you press the hotkey:
 1. **Capture.** The app takes a screenshot of a small area around the cursor (about 11% × 20% of the screen), before the overlay appears so it doesn't get in the way.
 2. **Read.** [Tesseract](https://github.com/tesseract-ocr/tesseract) recognises the text in that area. Long names wrap onto several lines, so lines that sit right under each other are joined into one name. Of all the text found, the app takes the label at or below the cursor: in Warframe an item's name is always at the bottom of its cell.
 3. **Match.** The text is looked up in the warframe.market item list: first an exact match, then the closest name allowing a few misread letters. If the text is too vague (say, only "Hildryn Prime" was read), the app asks you instead of guessing between the set and its parts.
-4. **Prices.** The sellers and the item's set come from the public warframe.market API (v2). Apart from the one-time download of the recognition data, the app only talks to warframe.market, and only to ask for item data. The screenshot only lives in memory and is thrown away right after reading; the only files the app writes are its settings (`settings.json`) and the recognition data it downloads once (`tessdata`), both next to the exe.
+4. **Prices.** The sellers and the item's set come from the public warframe.market API (v2). The app only talks to warframe.market, and only to ask for item data. The screenshot only lives in memory and is thrown away right after reading. The English recognition data (`tessdata`) ships with the app, and the only file the app writes is its settings: `%APPDATA%\AwakenedWarframeMarket\settings.json`.
 
 ## Dependencies
 
@@ -111,7 +112,7 @@ For the curious, here is what happens after you press the hotkey:
 
 ## License
 
-MIT License
+[MIT](LICENSE). Third-party components and their licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Credits
 

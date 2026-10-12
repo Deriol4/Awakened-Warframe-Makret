@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -28,13 +29,29 @@ public class OrderRow : Observable
     private bool _isSelected;
     private bool _isCopied;
 
-    public OrderRow(MarketOrder order, int? maxRank, bool isOdd)
+    public OrderRow(MarketOrder order, MarketItem item, bool isOdd)
     {
         Order = order;
         IsOdd = isOdd;
-        ShowRank = maxRank is > 0;
-        RankText = ShowRank && order.Rank != null ? $"{order.Rank}/{maxRank}" : "-";
-        IsMaxRank = ShowRank && order.Rank == maxRank;
+        ShowDetails = item.HasDetails;
+        DetailWidth = DetailColumnWidth(item);
+        DetailText = BuildDetailText(order, item);
+        IsMaxRank = item.HasRanks && order.Rank == item.MaxRank;
+    }
+
+    /// <summary>Width of the details column: narrow for a rank alone, wider for refinements and the like.</summary>
+    public static double DetailColumnWidth(MarketItem item) =>
+        item.HasRanks && !item.HasSubtypes && !item.HasCharges && !item.HasStars ? 44 : 84;
+
+    // "5/10", "Radiant", "3 ch", "2+1★", joined with " · " when an item has several
+    private static string BuildDetailText(MarketOrder order, MarketItem item)
+    {
+        var parts = new List<string>();
+        if (item.HasSubtypes) parts.Add(string.IsNullOrEmpty(order.Subtype) ? "-" : MarketItem.SubtypeLabel(order.Subtype));
+        if (item.HasRanks) parts.Add(order.Rank != null ? $"{order.Rank}/{item.MaxRank}" : "-");
+        if (item.HasCharges) parts.Add(order.Charges != null ? $"{order.Charges} ch" : "-");
+        if (item.HasStars) parts.Add($"{order.AmberStars ?? 0}+{order.CyanStars ?? 0}★");
+        return parts.Count == 0 ? "-" : string.Join(" · ", parts);
     }
 
     public MarketOrder Order { get; }
@@ -47,8 +64,9 @@ public class OrderRow : Observable
     public bool IsOffline => Status != "ingame" && Status != "online";
     public string Listed => FormatAgo(Order.CreatedAt);
 
-    public bool ShowRank { get; }
-    public string RankText { get; }
+    public bool ShowDetails { get; }
+    public double DetailWidth { get; }
+    public string DetailText { get; }
     public bool IsMaxRank { get; }
     public bool IsOdd { get; }
 
