@@ -2,16 +2,28 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AwakenedWarframeMarket.Models;
 using Newtonsoft.Json;
 
 namespace AwakenedWarframeMarket.Services;
 
+/// <summary>Result of looking up OCR text in the market catalogue.</summary>
+/// <param name="Method">"exact", "fuzzy" or "unique-partial" - how the item was found.</param>
+/// <param name="Distance">Edit distance for fuzzy matches, otherwise null.</param>
+/// <param name="Alternatives">Closest candidates, for the debug dump.</param>
+public record ItemMatch(MarketItem Item, string Method, int? Distance, List<string> Alternatives);
+
 public class WarframeMarketAPI
 {
+    private const string BaseUrl = "https://api.warframe.market/v2";
+    public const string SiteUrl = "https://warframe.market";
+
+    private sealed record KeyedItem(MarketItem Item, string Key);
+
     private readonly HttpClient _client;
-    private List<MarketItem>? _itemsCache;
+    private List<KeyedItem>? _itemsCache;
     private DateTime _cacheTime;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromHours(1);
 
@@ -22,53 +34,132 @@ public class WarframeMarketAPI
             Timeout = TimeSpan.FromSeconds(10)
         };
         _client.DefaultRequestHeaders.Add("Accept", "application/json");
+        // Platform is a required header on the v2 order endpoints
         _client.DefaultRequestHeaders.Add("Platform", "pc");
         _client.DefaultRequestHeaders.Add("Language", "en");
     }
 
-    public async Task<string?> FindClosestItemNameAsync(string itemName)
+    public static string ItemPageUrl(string slug) => $"{SiteUrl}/items/{slug}";
+
+    /// <summary>Download the item catalogue in advance so the first price check doesn't wait for it.</summary>
+    public Task PreloadAsync() => GetAllItemsAsync();
+
+    /// <summary>False when the item list could not be downloaded (no connection, site down).</summary>
+    public bool CatalogueLoaded => _itemsCache is { Count: > 0 };
+
+    // ---- Catalogue lookup ----------------------------------------------------------
+
+    /// <summary>
+    /// Finds the catalogue item that best matches the text read by OCR.
+    /// Order: exact name -> closest by edit distance -> a name that contains the text, but only if it is unique.
+    /// Deliberately returns null instead of guessing when the text is ambiguous (e.g. just "Hildryn Prime"
+    /// could be the Set or any of its parts).
+    /// </summary>
+    public async Task<ItemMatch?> FindBestMatchAsync(string ocrText)
     {
         var items = await GetAllItemsAsync();
-        if (items == null || items.Count == 0)
+        if (items == null || items.Count == 0 || string.IsNullOrWhiteSpace(ocrText))
             return null;
 
-        // Try exact match first (case-insensitive)
-        var exactMatch = items.FirstOrDefault(i =>
-            i.ItemName.Equals(itemName, StringComparison.OrdinalIgnoreCase));
-
-        if (exactMatch != null)
-            return exactMatch.UrlName;
-
-        // Try contains match
-        var containsMatch = items.FirstOrDefault(i =>
-            i.ItemName.Contains(itemName, StringComparison.OrdinalIgnoreCase) ||
-            itemName.Contains(i.ItemName, StringComparison.OrdinalIgnoreCase));
-
-        if (containsMatch != null)
-            return containsMatch.UrlName;
-
-        // Try fuzzy match using Levenshtein distance
-        var bestMatch = items
-            .Select(i => new { Item = i, Distance = LevenshteinDistance(itemName.ToLower(), i.ItemName.ToLower()) })
-            .Where(x => x.Distance <= Math.Max(3, itemName.Length / 3)) // Allow up to 1/3 of chars to be wrong
-            .OrderBy(x => x.Distance)
-            .FirstOrDefault();
-
-        return bestMatch?.Item.UrlName;
+        // Thousands of edit-distance comparisons: keep them off the UI thread
+        return await Task.Run(() => FindBestMatch(items, ocrText));
     }
 
-    private async Task<List<MarketItem>?> GetAllItemsAsync()
+    private static ItemMatch? FindBestMatch(List<KeyedItem> items, string ocrText)
+    {
+        var query = Normalize(ocrText);
+        if (query.Length == 0)
+            return null;
+
+        // 1. Exact (ignoring case and punctuation)
+        var exact = items.FirstOrDefault(x => x.Key == query);
+        if (exact != null)
+            return new ItemMatch(exact.Item, "exact", 0, new List<string>());
+
+        // 2. Closest by edit distance. The limit is ~20% of the text length: enough for a few OCR slips,
+        //    too small to turn "... Systems Blueprint" into a different item.
+        int maxDistance = Math.Max(2, query.Length / 5);
+        var ranked = items
+            .Where(x => Math.Abs(x.Key.Length - query.Length) <= maxDistance)
+            .Select(x => new { x.Item, Distance = LevenshteinDistance(query, x.Key) })
+            .OrderBy(x => x.Distance)
+            .ThenBy(x => x.Item.Name.Length)
+            .Take(5)
+            .ToList();
+
+        if (ranked.Count > 0 && ranked[0].Distance <= maxDistance)
+        {
+            var alternatives = ranked.Select(r => $"{r.Item.Name} (distance {r.Distance})").ToList();
+            return new ItemMatch(ranked[0].Item, "fuzzy", ranked[0].Distance, alternatives);
+        }
+
+        // 3. OCR lost part of a long name: accept a containing name only if exactly one item contains the text
+        var containing = items.Where(x => x.Key.Contains(query, StringComparison.Ordinal)).Take(2).ToList();
+        if (containing.Count == 1)
+            return new ItemMatch(containing[0].Item, "unique-partial", null, new List<string>());
+
+        return null;
+    }
+
+    /// <summary>
+    /// Items for the manual search box: names that start with or contain the text come first,
+    /// then names that are close to it (typo-tolerant, also against the start of longer names,
+    /// so "hildryn prlme neuropt" still finds "Hildryn Prime Neuroptics Blueprint").
+    /// </summary>
+    public async Task<List<MarketItem>> SuggestAsync(string text, int count = 6)
+    {
+        var items = await GetAllItemsAsync();
+        var query = Normalize(text ?? "");
+        if (items == null || query.Length == 0)
+            return new List<MarketItem>();
+
+        return await Task.Run(() => items
+            .Select(x => new { x.Item, Score = SuggestScore(query, x.Key) })
+            .Where(x => x.Score < 1000)
+            .OrderBy(x => x.Score)
+            .ThenBy(x => x.Item.Name.Length)
+            .ThenBy(x => x.Item.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(count)
+            .Select(x => x.Item)
+            .ToList());
+    }
+
+    private static double SuggestScore(string query, string key)
+    {
+        if (key == query) return -300;
+        if (key.StartsWith(query, StringComparison.Ordinal)) return -200 + (key.Length - query.Length) * 0.01;
+        int idx = key.IndexOf(query, StringComparison.Ordinal);
+        if (idx >= 0) return -100 + idx * 0.1 + (key.Length - query.Length) * 0.01;
+
+        // Typo-tolerant: compare with the whole name and with its beginning (same length as the query)
+        int limit = Math.Max(2, query.Length / 4);
+        int whole = Math.Abs(key.Length - query.Length) <= limit ? LevenshteinDistance(query, key) : int.MaxValue;
+        int prefix = key.Length > query.Length ? LevenshteinDistance(query, key.Substring(0, query.Length)) : int.MaxValue;
+        int best = Math.Min(whole, prefix);
+        return best <= limit ? best + (best == prefix ? 0.5 : 0) : 1000;
+    }
+
+    private async Task<List<KeyedItem>?> GetAllItemsAsync()
     {
         if (_itemsCache != null && DateTime.Now - _cacheTime < _cacheExpiry)
             return _itemsCache;
 
         try
         {
-            var response = await _client.GetStringAsync("https://api.warframe.market/v1/items");
-            var data = JsonConvert.DeserializeObject<ItemsListResponse>(response);
+            var response = await _client.GetStringAsync($"{BaseUrl}/items");
 
-            _itemsCache = data?.Payload?.Items;
-            _cacheTime = DateTime.Now;
+            // The catalogue is a few MB of JSON: parse it in the background, not on the UI thread
+            var parsed = await Task.Run(() =>
+                JsonConvert.DeserializeObject<ApiResponse<List<MarketItem>>>(response)?.Data?
+                    .Where(i => i.Name.Length > 0)
+                    .Select(i => new KeyedItem(i, Normalize(i.Name)))
+                    .ToList());
+
+            if (parsed is { Count: > 0 })
+            {
+                _itemsCache = parsed;
+                _cacheTime = DateTime.Now;
+            }
 
             return _itemsCache;
         }
@@ -79,70 +170,51 @@ public class WarframeMarketAPI
         }
     }
 
-    public async Task<List<PriceData>> GetItemPricesAsync(string urlName)
+    // "Ash Prime  Neuroptics-Blueprint" -> "ash prime neuroptics blueprint"
+    private static string Normalize(string text) =>
+        Regex.Replace(text.ToLowerInvariant(), @"[^\p{L}\p{N}]+", " ").Trim();
+
+    // ---- Sets and orders -----------------------------------------------------------
+
+    /// <summary>
+    /// All items of the set this item belongs to, the "... Set" item first.
+    /// For an item that is not part of a set (or on error) returns just the item itself.
+    /// </summary>
+    public async Task<List<MarketItem>> GetSetItemsAsync(MarketItem item)
     {
         try
         {
-            var url = $"https://api.warframe.market/v1/items/{urlName}/orders";
-            var response = await _client.GetStringAsync(url);
-            var data = JsonConvert.DeserializeObject<MarketResponse>(response);
+            var response = await _client.GetStringAsync($"{BaseUrl}/item/{item.Slug}/set");
+            var items = await Task.Run(() =>
+                JsonConvert.DeserializeObject<ApiResponse<ItemSetData>>(response)?.Data?.Items?
+                    .Where(i => !string.IsNullOrEmpty(i.Slug))
+                    .ToList());
 
-            if (data?.Payload?.Orders == null)
-                return new List<PriceData>();
+            if (items == null || items.Count == 0)
+                return new List<MarketItem> { item };
 
-            var prices = data.Payload.Orders
-                .Where(o => o.OrderType == "sell" && o.User?.Status == "ingame")
-                .OrderBy(o => o.Platinum)
-                .Take(20)
-                .Select(o => new PriceData
-                {
-                    Price = o.Platinum,
-                    Rank = o.ModRank?.ToString() ?? "-",
-                    Quality = "-", // API doesn't provide quality directly
-                    ListedTime = FormatTimeAgo(o.LastUpdate),
-                    UserName = o.User?.InGameName ?? "",
-                    UserStatus = o.User?.Status ?? ""
-                })
+            return items
+                .OrderByDescending(i => i.SetRoot == true)
+                .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-
-            // If no in-game users, include online users
-            if (prices.Count < 5)
-            {
-                var onlineOrders = data.Payload.Orders
-                    .Where(o => o.OrderType == "sell" && o.User?.Status == "online")
-                    .OrderBy(o => o.Platinum)
-                    .Take(20 - prices.Count)
-                    .Select(o => new PriceData
-                    {
-                        Price = o.Platinum,
-                        Rank = o.ModRank?.ToString() ?? "-",
-                        Quality = "-",
-                        ListedTime = FormatTimeAgo(o.LastUpdate),
-                        UserName = o.User?.InGameName ?? "",
-                        UserStatus = o.User?.Status ?? ""
-                    });
-
-                prices.AddRange(onlineOrders);
-            }
-
-            return prices.OrderBy(p => p.Price).Take(20).ToList();
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error fetching prices: {ex.Message}");
-            throw;
+            System.Diagnostics.Debug.WriteLine($"Error fetching set for {item.Slug}: {ex.Message}");
+            return new List<MarketItem> { item };
         }
     }
 
-    private string FormatTimeAgo(DateTime time)
+    /// <summary>Sell orders for an item, from users seen in the last days (online, in game and offline).</summary>
+    public async Task<List<MarketOrder>> GetSellOrdersAsync(string slug)
     {
-        var diff = DateTime.UtcNow - time;
+        var response = await _client.GetStringAsync($"{BaseUrl}/orders/item/{slug}");
 
-        if (diff.TotalMinutes < 1) return "just now";
-        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
-        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
-        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
-        return time.ToString("MMM dd");
+        // Popular mods and arcanes have hundreds of orders: parse in the background
+        return await Task.Run(() =>
+            JsonConvert.DeserializeObject<ApiResponse<List<MarketOrder>>>(response)?.Data?
+                .Where(o => o.Type == "sell" && o.User != null)
+                .ToList() ?? new List<MarketOrder>());
     }
 
     private static int LevenshteinDistance(string s1, string s2)

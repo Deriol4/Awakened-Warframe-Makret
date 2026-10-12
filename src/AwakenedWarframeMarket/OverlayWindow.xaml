@@ -1,212 +1,813 @@
 <Window x:Class="AwakenedWarframeMarket.OverlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Price Overlay"
-        Width="450" Height="400"
+        Title="Awakened Warframe Market"
+        Width="440"
+        Height="720"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
+        ResizeMode="NoResize"
         Topmost="True"
         ShowInTaskbar="False"
-        WindowStartupLocation="CenterScreen"
-        KeyDown="Window_KeyDown"
-        MouseDown="Window_MouseDown">
+        WindowStartupLocation="Manual"
+        UseLayoutRounding="True"
+        Loaded="Window_Loaded"
+        PreviewKeyDown="Window_PreviewKeyDown">
 
     <Window.Resources>
-        <!-- DataGrid Style -->
-        <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="RowBackground" Value="Transparent"/>
-            <Setter Property="AlternatingRowBackground" Value="#11ffffff"/>
-            <Setter Property="GridLinesVisibility" Value="None"/>
-            <Setter Property="HeadersVisibility" Value="Column"/>
-            <Setter Property="AutoGenerateColumns" Value="False"/>
-            <Setter Property="CanUserAddRows" Value="False"/>
-            <Setter Property="CanUserDeleteRows" Value="False"/>
-            <Setter Property="CanUserResizeRows" Value="False"/>
-            <Setter Property="IsReadOnly" Value="True"/>
-            <Setter Property="SelectionMode" Value="Single"/>
-            <Setter Property="RowHeight" Value="28"/>
-        </Style>
+        <!-- Palette (matches the design canvas) -->
+        <SolidColorBrush x:Key="Bg" Color="#1B1F24"/>
+        <SolidColorBrush x:Key="TopBg" Color="#15181C"/>
+        <SolidColorBrush x:Key="FooterBg" Color="#171A1E"/>
+        <SolidColorBrush x:Key="Line" Color="#2B3138"/>
+        <SolidColorBrush x:Key="Edge" Color="#343B43"/>
+        <SolidColorBrush x:Key="Surface" Color="#20252B"/>
+        <SolidColorBrush x:Key="Hover" Color="#262C33"/>
+        <SolidColorBrush x:Key="Selected" Color="#2D343C"/>
+        <SolidColorBrush x:Key="InputBg" Color="#111417"/>
+        <SolidColorBrush x:Key="Text" Color="#D7DBE0"/>
+        <SolidColorBrush x:Key="TextStrong" Color="#EEF0F2"/>
+        <SolidColorBrush x:Key="Muted" Color="#8A939D"/>
+        <SolidColorBrush x:Key="Soft" Color="#AAB2BB"/>
+        <SolidColorBrush x:Key="ControlBorder" Color="#3A424B"/>
+        <SolidColorBrush x:Key="Accent" Color="#C8A75A"/>
+        <SolidColorBrush x:Key="AccentText" Color="#EEDCAE"/>
+        <SolidColorBrush x:Key="AccentBg" Color="#2A2620"/>
+        <SolidColorBrush x:Key="InGame" Color="#3FBF9B"/>
+        <SolidColorBrush x:Key="Online" Color="#6F9FE0"/>
+        <SolidColorBrush x:Key="Offline" Color="#4B525A"/>
 
-        <!-- Column Header Style -->
-        <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#4a9eff"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="BorderBrush" Value="#333333"/>
-        </Style>
+        <!-- Barlow is used when installed in Windows, otherwise Segoe UI -->
+        <FontFamily x:Key="UiFont">Barlow, Segoe UI</FontFamily>
+        <FontFamily x:Key="TitleFont">Barlow Semi Condensed, Segoe UI</FontFamily>
 
-        <!-- Cell Style -->
-        <Style TargetType="DataGridCell">
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- Buttons -->
+        <Style x:Key="FlatButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Foreground" Value="#e0e0e0"/>
-            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="DataGridCell">
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Selected}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="OutlineButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="9,4"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <Style x:Key="SegmentButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <Style x:Key="ChipButton" TargetType="Button" BasedOn="{StaticResource OutlineButton}">
+            <Setter Property="Foreground" Value="{StaticResource Soft}"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+
+        <Style x:Key="StepButton" TargetType="Button" BasedOn="{StaticResource OutlineButton}">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="{StaticResource Bg}"/>
+        </Style>
+
+        <Style x:Key="MenuButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <Style x:Key="PartButton" TargetType="Button">
+            <Setter Property="Background" Value="#22272D"/>
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}"/>
+            <Setter Property="Foreground" Value="{StaticResource Soft}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse x:Name="Circle"
+                                     Fill="{TemplateBinding Background}"
+                                     Stroke="{TemplateBinding BorderBrush}"
+                                     StrokeThickness="2"/>
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Circle" Property="Fill" Value="#2A3037"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Kbd" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Padding" Value="5,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="Title" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource TitleFont}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="StatLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <Style x:Key="StatValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+        </Style>
+
+        <!-- Thin scrollbar: 6px, no arrows, lighter on hover -->
+        <Style x:Key="ScrollPageButton" TargetType="RepeatButton">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Rectangle Fill="Transparent"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ScrollThumb" TargetType="Thumb">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="ThumbBd" Background="{StaticResource ControlBorder}" CornerRadius="3"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ThumbBd" Property="Background" Value="#56606B"/>
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="ThumbBd" Property="Background" Value="#56606B"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="6"/>
+            <Setter Property="MinWidth" Value="6"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollPageButton}"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollPageButton}"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource ScrollThumb}"/>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SearchBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource InputBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextStrong}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource TextStrong}"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource Accent}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
                         <Border Background="{TemplateBinding Background}"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter VerticalAlignment="Center"/>
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center"
+                                          Focusable="False"/>
                         </Border>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#22ffffff"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Row Style -->
-        <Style TargetType="DataGridRow">
-            <Setter Property="Background" Value="Transparent"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#15ffffff"/>
-                </Trigger>
-            </Style.Triggers>
         </Style>
     </Window.Resources>
 
-    <!-- Main Container -->
-    <Border CornerRadius="8"
-            Background="#E6000000"
-            BorderBrush="#d4af37"
-            BorderThickness="2">
-        <Border.Effect>
-            <DropShadowEffect Color="Black"
-                              BlurRadius="20"
-                              ShadowDepth="0"
-                              Opacity="0.8"/>
-        </Border.Effect>
-
+    <Border x:Name="RootBorder"
+            Background="{StaticResource Bg}"
+            BorderBrush="{StaticResource Edge}"
+            BorderThickness="1"
+            CornerRadius="8"
+            TextElement.FontFamily="{StaticResource UiFont}"
+            TextElement.FontSize="13"
+            TextElement.Foreground="{StaticResource Text}">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="60"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="40"/>
             </Grid.RowDefinitions>
 
-            <!-- Header -->
-            <Grid Grid.Row="0" Margin="15,10,10,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <TextBlock x:Name="ItemNameText"
-                               Text="Loading..."
-                               FontSize="18"
-                               FontWeight="Bold"
-                               Foreground="#d4af37"
-                               TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="SubtitleText"
-                               Text=""
+            <!-- Top bar: drag handle + close -->
+            <Border Grid.Row="0"
+                    Background="{StaticResource TopBg}"
+                    BorderBrush="{StaticResource Line}"
+                    BorderThickness="0,0,0,1"
+                    CornerRadius="7,7,0,0"
+                    MouseLeftButtonDown="TopBar_MouseLeftButtonDown">
+                <DockPanel Margin="12,4,6,4">
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource FlatButton}"
+                            Width="28" Height="28"
+                            ToolTip="Close (Esc)"
+                            AutomationProperties.Name="Close overlay"
+                            Click="CloseButton_Click">
+                        <Path Data="M2,2 L10,10 M10,2 L2,10"
+                              Width="12" Height="12"
+                              Stroke="{StaticResource Muted}"
+                              StrokeThickness="1.5"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"/>
+                    </Button>
+                    <TextBlock x:Name="TopBarText"
+                               Text="PC · warframe.market"
                                FontSize="12"
-                               Foreground="#9e9e9e"
-                               Margin="0,2,0,0"/>
+                               Foreground="{StaticResource Muted}"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+            </Border>
+
+            <!-- ============ Loading ============ -->
+            <StackPanel x:Name="LoadingPanel" Grid.Row="1" Margin="14,16,14,0">
+                <TextBlock x:Name="LoadingTitle" Style="{StaticResource Title}" Text="Reading the item under the cursor"/>
+                <TextBlock x:Name="LoadingSubtitle" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                <Border Height="3" Margin="0,12,0,0" CornerRadius="1.5" Background="{StaticResource Line}" ClipToBounds="True">
+                    <Rectangle Width="140" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="{StaticResource Accent}" HorizontalAlignment="Left">
+                        <Rectangle.RenderTransform>
+                            <TranslateTransform x:Name="LoadingBarShift" X="-140"/>
+                        </Rectangle.RenderTransform>
+                    </Rectangle>
+                </Border>
+                <Grid Margin="10,18,10,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="52"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="30"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="54"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="22"/>
+                        <RowDefinition Height="22"/>
+                        <RowDefinition Height="22"/>
+                    </Grid.RowDefinitions>
+                    <Border Grid.Row="0" Grid.Column="0" Height="10" CornerRadius="3" Background="#262C33"/>
+                    <Border Grid.Row="0" Grid.Column="2" Height="10" CornerRadius="3" Background="#262C33"/>
+                    <Border Grid.Row="0" Grid.Column="4" Height="10" CornerRadius="3" Background="#262C33" HorizontalAlignment="Left" Width="130"/>
+                    <Border Grid.Row="0" Grid.Column="6" Height="10" CornerRadius="3" Background="#262C33"/>
+                    <Border Grid.Row="1" Grid.Column="0" Height="10" CornerRadius="3" Background="#22272D"/>
+                    <Border Grid.Row="1" Grid.Column="2" Height="10" CornerRadius="3" Background="#22272D"/>
+                    <Border Grid.Row="1" Grid.Column="4" Height="10" CornerRadius="3" Background="#22272D" HorizontalAlignment="Left" Width="100"/>
+                    <Border Grid.Row="1" Grid.Column="6" Height="10" CornerRadius="3" Background="#22272D"/>
+                    <Border Grid.Row="2" Grid.Column="0" Height="10" CornerRadius="3" Background="#1F2328"/>
+                    <Border Grid.Row="2" Grid.Column="2" Height="10" CornerRadius="3" Background="#1F2328"/>
+                    <Border Grid.Row="2" Grid.Column="4" Height="10" CornerRadius="3" Background="#1F2328" HorizontalAlignment="Left" Width="150"/>
+                    <Border Grid.Row="2" Grid.Column="6" Height="10" CornerRadius="3" Background="#1F2328"/>
+                </Grid>
+            </StackPanel>
+
+            <!-- ============ Error ============ -->
+            <StackPanel x:Name="ErrorPanel" Grid.Row="1" Margin="14,16,14,0" Visibility="Collapsed">
+                <TextBlock Style="{StaticResource Title}" Text="Something went wrong"/>
+                <TextBlock x:Name="ErrorText" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="Esc to close" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,16,0,0"/>
+            </StackPanel>
+
+            <!-- ============ Manual search (name not read / not matched) ============ -->
+            <Grid x:Name="SearchPanel" Grid.Row="1" Margin="14,16,14,12" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock x:Name="SearchTitle" Grid.Row="0" Style="{StaticResource Title}" Text="Couldn't match the name"/>
+                <TextBlock Grid.Row="1" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis">
+                    <Run Text="Read from screen: "/><Run x:Name="SearchOcrRun" Foreground="{StaticResource Text}"/>
+                </TextBlock>
+                <TextBlock Grid.Row="2" Text="Search item" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,14,0,6"/>
+                <Grid Grid.Row="3">
+                    <TextBox x:Name="SearchBox"
+                             Style="{StaticResource SearchBoxStyle}"
+                             TextChanged="SearchBox_TextChanged"
+                             PreviewKeyDown="SearchBox_PreviewKeyDown"/>
+                    <TextBlock x:Name="SearchPlaceholder"
+                               Text="Type to correct the name"
+                               Foreground="#7D8690"
+                               Margin="11,0,0,0"
+                               VerticalAlignment="Center"
+                               IsHitTestVisible="False"/>
+                </Grid>
+
+                <StackPanel Grid.Row="4" Margin="0,14,0,0">
+                    <TextBlock Text="CLOSEST ITEMS" FontSize="11" Foreground="{StaticResource Muted}" Margin="2,0,0,6"/>
+                    <ItemsControl x:Name="SuggestionList" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Click="Suggestion_Click"
+                                        HorizontalContentAlignment="Stretch"
+                                        Padding="10,8"
+                                        Margin="0,0,0,2">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource Selected}"/>
+                                                    <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Right"
+                                                Style="{StaticResource Kbd}"
+                                                Margin="8,0,0,0"
+                                                Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="Enter" FontSize="11" Foreground="{StaticResource Soft}"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                    </DockPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="SuggestionEmpty"
+                               Text="No items match. Check the spelling."
+                               FontSize="12"
+                               Foreground="{StaticResource Muted}"
+                               Margin="2,4,0,0"
+                               Visibility="Collapsed"/>
                 </StackPanel>
 
-                <Button Grid.Column="1"
-                        Content="✕"
-                        Style="{StaticResource CloseButton}"
-                        Click="CloseButton_Click"
-                        VerticalAlignment="Top"/>
+                <TextBlock Grid.Row="5" Text="↑↓ to choose · Enter to search · Esc to close" FontSize="11" Foreground="{StaticResource Muted}"/>
             </Grid>
 
-            <!-- Content Area -->
-            <Grid Grid.Row="1" Margin="10,5,10,5">
-                <!-- Loading State -->
-                <StackPanel x:Name="LoadingPanel"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Center"
-                            Visibility="Visible">
-                    <TextBlock x:Name="LoadingText"
-                               Text="Scanning item..."
-                               FontSize="14"
-                               Foreground="#9e9e9e"
-                               HorizontalAlignment="Center"/>
-                    <ProgressBar x:Name="LoadingProgress"
-                                 IsIndeterminate="True"
-                                 Width="200"
-                                 Height="3"
-                                 Margin="0,10,0,0"
-                                 Background="#333333"
-                                 Foreground="#4a9eff"/>
-                </StackPanel>
+            <!-- ============ Results ============ -->
+            <Grid x:Name="ResultsPanel" Grid.Row="1" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                <!-- Error State -->
-                <StackPanel x:Name="ErrorPanel"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Center"
-                            Visibility="Collapsed">
-                    <TextBlock Text="⚠"
-                               FontSize="32"
-                               Foreground="#ff6b6b"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="ErrorText"
-                               Text="Error occurred"
-                               FontSize="14"
-                               Foreground="#ff6b6b"
+                <!-- Header -->
+                <Border Grid.Row="0" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                    <StackPanel Margin="14,12,14,10">
+                        <DockPanel>
+                            <TextBlock x:Name="DucatsText"
+                                       DockPanel.Dock="Right"
+                                       FontSize="12"
+                                       Foreground="{StaticResource Muted}"
+                                       VerticalAlignment="Bottom"
+                                       Margin="12,0,0,2"/>
+                            <TextBlock x:Name="TitleText" Style="{StaticResource Title}"/>
+                        </DockPanel>
+                        <TextBlock x:Name="SubtitleText" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,2,0,0" Visibility="Collapsed"/>
+
+                        <!-- Set switcher: the whole set and each part -->
+                        <ItemsControl x:Name="PartsList" Margin="0,12,0,0" Focusable="False" Visibility="Collapsed">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Width="{Binding Size}" Height="{Binding Size}" Margin="0,0,12,0" VerticalAlignment="Center">
+                                        <Button Click="Part_Click" ToolTip="{Binding Name}" AutomationProperties.Name="{Binding Name}">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource PartButton}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+                                                            <Setter Property="Foreground" Value="{StaticResource AccentText}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <Grid>
+                                                <Image Source="{Binding ImageUrl, TargetNullValue={x:Null}}"
+                                                       ImageFailed="PartImage_ImageFailed"
+                                                       Margin="7"
+                                                       RenderOptions.BitmapScalingMode="HighQuality"
+                                                       Visibility="{Binding HasImage, Converter={StaticResource BoolToVis}}"/>
+                                                <TextBlock Text="{Binding ShortLabel}"
+                                                           FontFamily="{StaticResource TitleFont}"
+                                                           FontWeight="SemiBold"
+                                                           FontSize="12"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasImage}" Value="False">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                        </Button>
+                                        <Border HorizontalAlignment="Right"
+                                                VerticalAlignment="Bottom"
+                                                Margin="0,0,-6,-4"
+                                                MinWidth="18"
+                                                Height="16"
+                                                Padding="3,0"
+                                                CornerRadius="8"
+                                                Background="{StaticResource TopBg}"
+                                                BorderBrush="{StaticResource ControlBorder}"
+                                                BorderThickness="1"
+                                                IsHitTestVisible="False"
+                                                Visibility="{Binding HasQuantity, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="{Binding QuantityText}" FontSize="10" Foreground="{StaticResource Soft}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Rank picker (mods, arcanes) -->
+                        <Border x:Name="RankPanel" Margin="0,12,0,0" Padding="10,8" CornerRadius="6" Background="{StaticResource Surface}" Visibility="Collapsed">
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="RankAnyButton" Style="{StaticResource ChipButton}" Content="Any" Margin="0,0,4,0" Click="RankAny_Click"/>
+                                    <Button x:Name="RankMaxButton" Style="{StaticResource ChipButton}" Content="Max" Click="RankMax_Click"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource StepButton}" ToolTip="Lower rank" AutomationProperties.Name="Lower rank" Click="RankDown_Click">
+                                        <Path Data="M2,6 L10,6" Width="12" Height="12" Stroke="{StaticResource Text}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Button>
+                                    <StackPanel MinWidth="112" Margin="8,0">
+                                        <TextBlock x:Name="RankLabel" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" HorizontalAlignment="Center"/>
+                                        <TextBlock x:Name="RankHint" FontSize="11" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                    <Button Style="{StaticResource StepButton}" ToolTip="Raise rank" AutomationProperties.Name="Raise rank" Click="RankUp_Click">
+                                        <Path Data="M2,6 L10,6 M6,2 L6,10" Width="12" Height="12" Stroke="{StaticResource Text}" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Button>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <!-- Stats -->
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="{StaticResource Surface}" CornerRadius="6" Padding="8,6">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource StatLabel}" Text="Lowest in game"/>
+                                    <TextBlock x:Name="StatLow" Style="{StaticResource StatValue}" Foreground="{StaticResource Accent}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Background="{StaticResource Surface}" CornerRadius="6" Padding="8,6">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource StatLabel}" Text="Median in game"/>
+                                    <TextBlock x:Name="StatMedian" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="4" Background="{StaticResource Surface}" CornerRadius="6" Padding="8,6">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource StatLabel}" Text="Sellers found"/>
+                                    <TextBlock x:Name="StatTotal" Style="{StaticResource StatValue}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="6" Background="{StaticResource Surface}" CornerRadius="6" Padding="8,6">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource StatLabel}" Text="In game now"/>
+                                    <TextBlock x:Name="StatInGame" Style="{StaticResource StatValue}" Foreground="{StaticResource InGame}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Status filter + sort -->
+                        <DockPanel Margin="0,12,0,0">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Sort" FontSize="12" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <Button x:Name="SortButton" Style="{StaticResource OutlineButton}" Background="{StaticResource TopBg}" BorderBrush="{StaticResource Line}" Padding="8,3" Click="SortButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock x:Name="SortText" Text="Price, low first" FontSize="12"/>
+                                        <Path Data="M0,0 L4,4 L8,0" Stroke="{StaticResource Muted}" StrokeThickness="1.3" Margin="6,1,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Popup x:Name="SortPopup"
+                                       PlacementTarget="{Binding ElementName=SortButton}"
+                                       Placement="Bottom"
+                                       VerticalOffset="4"
+                                       StaysOpen="False"
+                                       AllowsTransparency="True">
+                                    <Border Background="{StaticResource TopBg}"
+                                            BorderBrush="{StaticResource Edge}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Padding="4"
+                                            MinWidth="170"
+                                            TextElement.FontFamily="{StaticResource UiFont}">
+                                        <StackPanel>
+                                            <Button Style="{StaticResource MenuButton}" Tag="price" Content="Price, low first" Click="SortOption_Click"/>
+                                            <Button Style="{StaticResource MenuButton}" Tag="price-desc" Content="Price, high first" Click="SortOption_Click"/>
+                                            <Button x:Name="SortRankOption" Style="{StaticResource MenuButton}" Tag="rank" Content="Rank, highest first" Click="SortOption_Click"/>
+                                            <Button Style="{StaticResource MenuButton}" Tag="newest" Content="Newest first" Click="SortOption_Click"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Popup>
+                            </StackPanel>
+                            <Border HorizontalAlignment="Left" Padding="2" CornerRadius="6" Background="{StaticResource TopBg}" BorderBrush="{StaticResource Line}" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="FilterAllButton" Style="{StaticResource SegmentButton}" Tag="all" Content="All" Click="Filter_Click"/>
+                                    <Button x:Name="FilterOnlineButton" Style="{StaticResource SegmentButton}" Tag="online" Content="Online" Margin="2,0,0,0" Click="Filter_Click"/>
+                                    <Button x:Name="FilterInGameButton" Style="{StaticResource SegmentButton}" Tag="ingame" Content="In game" Margin="2,0,0,0" Click="Filter_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Column headers (widths match the row template below) -->
+                <DockPanel Grid.Row="1" Margin="21,8,15,6" TextElement.FontSize="11" TextElement.Foreground="{StaticResource Muted}">
+                    <Border DockPanel.Dock="Right" Width="73"/>
+                    <TextBlock DockPanel.Dock="Right" Text="LISTED" Width="60" TextAlignment="Right"/>
+                    <TextBlock DockPanel.Dock="Left" Text="PRICE" Width="62"/>
+                    <TextBlock DockPanel.Dock="Left" Text="QTY" Width="40"/>
+                    <TextBlock x:Name="RankHeader" DockPanel.Dock="Left" Text="RANK" Width="44" Visibility="Collapsed"/>
+                    <TextBlock Text="SELLER"/>
+                </DockPanel>
+
+                <!-- Sellers -->
+                <Grid Grid.Row="2">
+                    <!-- Virtualized: only the visible rows exist; mods and arcanes can have hundreds of sellers -->
+                    <ListBox x:Name="RowsList"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="0"
+                             Focusable="False"
+                             KeyboardNavigation.DirectionalNavigation="None"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.CanContentScroll="True"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             VirtualizingPanel.ScrollUnit="Pixel">
+                        <ListBox.Template>
+                            <ControlTemplate TargetType="ListBox">
+                                <ScrollViewer Focusable="False"
+                                              Padding="10,0,4,8"
+                                              CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <ItemsPresenter/>
+                                </ScrollViewer>
+                            </ControlTemplate>
+                        </ListBox.Template>
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Focusable" Value="False"/>
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter/>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border x:Name="RowBorder"
+                                            CornerRadius="4"
+                                            Margin="0,0,0,1"
+                                            Background="Transparent"
+                                            BorderBrush="Transparent"
+                                            BorderThickness="1">
+                                        <DockPanel>
+                                            <!-- Copy the whisper for this seller -->
+                                            <Button DockPanel.Dock="Right"
+                                                    Width="64"
+                                                    Height="26"
+                                                    Margin="6,0,3,0"
+                                                    ToolTip="{Binding CopyTooltip}"
+                                                    AutomationProperties.Name="{Binding CopyTooltip}"
+                                                    Click="Buy_Click">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource OutlineButton}">
+                                                        <Setter Property="Padding" Value="0"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource Soft}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCopied}" Value="True">
+                                                                <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                                <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource AccentText}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Grid Width="13" Height="13" Margin="0,0,5,0" VerticalAlignment="Center">
+                                                        <Path x:Name="CopyIcon"
+                                                              Data="M4.5,4.5 L12,4.5 L12,12.5 L4.5,12.5 Z M9.5,3 L9.5,2.8 A1.3,1.3 0 0 0 8.2,1.5 L3.3,1.5 A1.3,1.3 0 0 0 2,2.8 L2,9.2 A1.3,1.3 0 0 0 3.3,10.5 L4,10.5"
+                                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                              StrokeThickness="1.3"
+                                                              StrokeLineJoin="Round"/>
+                                                        <Path x:Name="CheckIcon"
+                                                              Data="M2.5,7.5 L5.5,10.5 L11.5,3.5"
+                                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                              StrokeThickness="1.6"
+                                                              StrokeStartLineCap="Round"
+                                                              StrokeEndLineCap="Round"
+                                                              StrokeLineJoin="Round"
+                                                              Visibility="Collapsed"/>
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding CopyLabel}" FontSize="12" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+
+                                            <!-- Select this seller (B copies for the selected one) -->
+                                            <Button Style="{StaticResource FlatButton}"
+                                                    Padding="10,6"
+                                                    HorizontalContentAlignment="Stretch"
+                                                    Click="Row_Click">
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Listed}" Width="60" TextAlignment="Right" FontSize="12" Foreground="{StaticResource Muted}"/>
+                                                    <TextBlock x:Name="PriceText" DockPanel.Dock="Left" Text="{Binding Price}" Width="62" FontWeight="SemiBold" Foreground="{StaticResource Accent}"/>
+                                                    <TextBlock DockPanel.Dock="Left" Text="{Binding Quantity}" Width="40"/>
+                                                    <TextBlock x:Name="RankText"
+                                                               DockPanel.Dock="Left"
+                                                               Text="{Binding RankText}"
+                                                               Width="44"
+                                                               Foreground="{StaticResource Soft}"
+                                                               Visibility="{Binding ShowRank, Converter={StaticResource BoolToVis}}"/>
+                                                    <DockPanel>
+                                                        <Ellipse x:Name="StatusDot"
+                                                                 DockPanel.Dock="Left"
+                                                                 Width="9" Height="9"
+                                                                 Margin="0,0,7,0"
+                                                                 VerticalAlignment="Center"
+                                                                 Fill="Transparent"
+                                                                 Stroke="{StaticResource Offline}"
+                                                                 StrokeThickness="2"
+                                                                 ToolTip="{Binding StatusLabel}"/>
+                                                        <TextBlock x:Name="UserText" Text="{Binding User}" TextTrimming="CharacterEllipsis"/>
+                                                    </DockPanel>
+                                                </DockPanel>
+                                            </Button>
+                                        </DockPanel>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsOdd}" Value="True">
+                                            <Setter TargetName="RowBorder" Property="Background" Value="#1F2328"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Status}" Value="ingame">
+                                            <Setter TargetName="StatusDot" Property="Fill" Value="{StaticResource InGame}"/>
+                                            <Setter TargetName="StatusDot" Property="Stroke" Value="{StaticResource InGame}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Status}" Value="online">
+                                            <Setter TargetName="StatusDot" Property="Stroke" Value="{StaticResource Online}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsOffline}" Value="True">
+                                            <Setter TargetName="PriceText" Property="Foreground" Value="{StaticResource Muted}"/>
+                                            <Setter TargetName="UserText" Property="Foreground" Value="{StaticResource Muted}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsMaxRank}" Value="True">
+                                            <Setter TargetName="RankText" Property="Foreground" Value="{StaticResource AccentText}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter TargetName="RowBorder" Property="Background" Value="{StaticResource Selected}"/>
+                                            <Setter TargetName="RowBorder" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsCopied}" Value="True">
+                                            <Setter TargetName="CopyIcon" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="CheckIcon" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock x:Name="ListMessage"
                                HorizontalAlignment="Center"
-                               TextWrapping="Wrap"
+                               VerticalAlignment="Top"
+                               Margin="20,24,20,0"
                                TextAlignment="Center"
-                               Margin="20,10,20,0"/>
-                </StackPanel>
+                               TextWrapping="Wrap"
+                               Foreground="{StaticResource Muted}"
+                               Visibility="Collapsed"/>
+                </Grid>
 
-                <!-- Data Grid -->
-                <DataGrid x:Name="PriceGrid"
-                          Visibility="Collapsed"
-                          VerticalScrollBarVisibility="Auto">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="PRICE"
-                                            Binding="{Binding PriceDisplay}"
-                                            Width="120">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="#d4af37"/>
-                                    <Setter Property="FontWeight" Value="SemiBold"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Header="RANK"
-                                            Binding="{Binding Rank}"
-                                            Width="60"/>
-                        <DataGridTextColumn Header="SELLER"
-                                            Binding="{Binding UserName}"
-                                            Width="120"/>
-                        <DataGridTextColumn Header="LISTED"
-                                            Binding="{Binding ListedTime}"
-                                            Width="*"/>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </Grid>
-
-            <!-- Footer -->
-            <Grid Grid.Row="2" Margin="15,0,15,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <TextBlock Grid.Column="0"
-                           Text="Data from warframe.market"
-                           FontSize="11"
-                           Foreground="#9e9e9e"
-                           VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1"
-                           Text="Press ESC to close"
-                           FontSize="11"
-                           Foreground="#4a9eff"
-                           VerticalAlignment="Center"/>
+                <!-- Footer -->
+                <Border Grid.Row="3"
+                        Background="{StaticResource FooterBg}"
+                        BorderBrush="{StaticResource Line}"
+                        BorderThickness="0,1,0,0"
+                        CornerRadius="0,0,7,7"
+                        Padding="14,8">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Left"
+                                Style="{StaticResource OutlineButton}"
+                                Padding="9,4"
+                                ToolTip="Open this item on warframe.market (T)"
+                                Click="OpenSite_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Open on site" FontSize="12" VerticalAlignment="Center"/>
+                                <Border Style="{StaticResource Kbd}" Margin="6,0,0,0">
+                                    <TextBlock Text="T" FontSize="11" Foreground="{StaticResource Soft}"/>
+                                </Border>
+                            </StackPanel>
+                        </Button>
+                        <TextBlock DockPanel.Dock="Right" Text="Esc to close" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        <TextBlock x:Name="FooterNote" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="10,0,0,0" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+                </Border>
             </Grid>
         </Grid>
     </Border>

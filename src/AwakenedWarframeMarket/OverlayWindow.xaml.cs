@@ -1,122 +1,661 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using AwakenedWarframeMarket.Models;
+using AwakenedWarframeMarket.Services;
 
 namespace AwakenedWarframeMarket;
 
+/// <summary>
+/// The price-check overlay. States: loading, results, manual search (name not read or not matched), error.
+/// Keys: Esc close · T open on site · B copy whisper for the selected seller · ↑↓ move selection.
+/// </summary>
 public partial class OverlayWindow : Window
 {
-    public OverlayWindow()
+    private const string DefaultTopBarText = "PC · warframe.market";
+
+    private readonly WarframeMarketAPI _api;
+    private readonly Dictionary<string, List<MarketOrder>> _orderCache = new();
+
+    // Every load bumps the version; results of an older load are dropped (e.g. after switching parts quickly)
+    private int _version;
+    private int _suggestionVersion;
+
+    private MarketItem? _item;
+    private List<MarketOrder> _orders = new();
+    private List<SetPart> _parts = new();
+    private List<OrderRow> _rows = new();
+    private List<Suggestion> _suggestions = new();
+
+    private bool _isClosed;
+    private int? _rank;              // null = any rank
+    private string _filter = "ingame";  // all | online | ingame; "In game" first: those sellers can trade right now
+    private string _sort = "price";  // price | price-desc | rank | newest
+    private string? _selectedOrderId;
+    private string? _copiedOrderId;
+
+    public OverlayWindow(WarframeMarketAPI api)
     {
+        _api = api;
         InitializeComponent();
-        Loaded += OverlayWindow_Loaded;
+        Opacity = 0;
+        ShowPanel(LoadingPanel);
+
+        // Lives only while it has focus: clicking back into the game, Alt+Tab or opening the site closes it
+        Deactivated += (_, _) => CloseWithAnimation();
     }
 
-    private void OverlayWindow_Loaded(object sender, RoutedEventArgs e)
+    // ---- Public API used by PriceCheckService ----------------------------------------
+
+    public void ShowLoading(string title, string subtitle)
     {
-        // Fade-in animation
-        var fadeIn = new DoubleAnimation
-        {
-            From = 0,
-            To = 1,
-            Duration = TimeSpan.FromMilliseconds(200)
-        };
-        BeginAnimation(OpacityProperty, fadeIn);
-
-        // Center on screen
-        CenterOnScreen();
-    }
-
-    private void CenterOnScreen()
-    {
-        var screen = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position);
-        Left = screen.WorkingArea.Left + (screen.WorkingArea.Width - Width) / 2;
-        Top = screen.WorkingArea.Top + (screen.WorkingArea.Height - Height) / 2;
-    }
-
-    public void ShowLoadingState(string message)
-    {
-        LoadingPanel.Visibility = Visibility.Visible;
-        ErrorPanel.Visibility = Visibility.Collapsed;
-        PriceGrid.Visibility = Visibility.Collapsed;
-
-        LoadingText.Text = message;
-        ItemNameText.Text = "Loading...";
-        SubtitleText.Text = "";
-    }
-
-    public void UpdateStatus(string message)
-    {
-        LoadingText.Text = message;
+        ShowPanel(LoadingPanel);
+        LoadingTitle.Text = title;
+        LoadingSubtitle.Text = subtitle;
     }
 
     public void ShowError(string message)
     {
-        LoadingPanel.Visibility = Visibility.Collapsed;
-        ErrorPanel.Visibility = Visibility.Visible;
-        PriceGrid.Visibility = Visibility.Collapsed;
-
+        _version++;
+        ShowPanel(ErrorPanel);
         ErrorText.Text = message;
-        ItemNameText.Text = "Error";
-        SubtitleText.Text = "";
     }
 
-    public void SetItemData(string itemName, List<PriceData> prices)
+    /// <summary>Debug Mode: show what OCR read in the top bar.</summary>
+    public void SetDebugNote(string? note) => TopBarText.Text = string.IsNullOrEmpty(note) ? DefaultTopBarText : note;
+
+    /// <summary>Let the user type the name when OCR could not read it or no item matched.</summary>
+    public void ShowSearch(string ocrText, string title)
     {
-        LoadingPanel.Visibility = Visibility.Collapsed;
-        ErrorPanel.Visibility = Visibility.Collapsed;
-        PriceGrid.Visibility = Visibility.Visible;
+        _version++;
+        ShowPanel(SearchPanel);
+        SearchTitle.Text = title;
+        SearchOcrRun.Text = string.IsNullOrWhiteSpace(ocrText) ? "nothing" : $"“{ocrText}”";
+        SearchBox.Text = ocrText;
+        SearchBox.SelectAll();
 
-        ItemNameText.Text = itemName;
-        SubtitleText.Text = prices.Count > 0
-            ? $"Found {prices.Count} listings"
-            : "No listings found";
-
-        PriceGrid.ItemsSource = prices;
-
-        // Animate grid appearance
-        var fadeIn = new DoubleAnimation
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
         {
-            From = 0,
-            To = 1,
-            Duration = TimeSpan.FromMilliseconds(150)
-        };
-        PriceGrid.BeginAnimation(OpacityProperty, fadeIn);
+            if (_isClosed)
+                return;
+            Activate();
+            SearchBox.Focus();
+            Keyboard.Focus(SearchBox);
+        }));
     }
 
-    private void Window_KeyDown(object sender, KeyEventArgs e)
+    /// <summary>Load the item, its set (for the part switcher) and its sellers.</summary>
+    public async Task LoadItemAsync(MarketItem item)
+    {
+        int version = ++_version;
+        ShowLoading("Loading sellers", item.Name);
+
+        try
+        {
+            var setTask = _api.GetSetItemsAsync(item);
+            var ordersTask = GetOrdersAsync(item.Slug);
+            await Task.WhenAll(setTask, ordersTask);
+            if (version != _version)
+                return;
+
+            var setItems = setTask.Result;
+            var current = setItems.FirstOrDefault(i => i.Slug == item.Slug) ?? item;
+            BuildParts(setItems, current);
+            ShowItem(current, ordersTask.Result);
+        }
+        catch (Exception ex)
+        {
+            if (version == _version)
+                ShowError($"Couldn't load sellers for {item.Name}.\n{ex.Message}");
+        }
+    }
+
+    // ---- Window --------------------------------------------------------------------
+
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        PositionNearCursor();
+        BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+        Activate();
+    }
+
+    /// <summary>Open beside the cursor (right side if it fits, else left), so the hovered item stays visible.</summary>
+    private void PositionNearCursor()
+    {
+        var cursor = System.Windows.Forms.Cursor.Position;
+        var area = System.Windows.Forms.Screen.FromPoint(cursor).WorkingArea;
+        var dpi = VisualTreeHelper.GetDpi(this);
+
+        double left = area.Left / dpi.DpiScaleX, right = area.Right / dpi.DpiScaleX;
+        double top = area.Top / dpi.DpiScaleY, bottom = area.Bottom / dpi.DpiScaleY;
+        double cx = cursor.X / dpi.DpiScaleX, cy = cursor.Y / dpi.DpiScaleY;
+        const double margin = 8, gap = 48;
+
+        Height = Math.Min(720, bottom - top - 2 * margin);
+
+        double x = cx + gap + Width <= right - margin ? cx + gap : cx - gap - Width;
+        Left = Math.Max(left + margin, Math.Min(x, right - Width - margin));
+        Top = Math.Max(top + margin, Math.Min(cy - Height / 2, bottom - Height - margin));
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape)
         {
-            CloseWithAnimation();
+            if (SortPopup.IsOpen)
+                SortPopup.IsOpen = false;
+            else
+                CloseWithAnimation();
+            e.Handled = true;
+            return;
         }
-    }
 
-    private void Window_MouseDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ChangedButton == MouseButton.Left)
+        // Shortcuts only in the results view, and never while typing
+        if (ResultsPanel.Visibility != Visibility.Visible || Keyboard.FocusedElement is TextBox)
+            return;
+
+        switch (e.Key)
         {
-            DragMove();
+            case Key.T:
+                OpenSite();
+                e.Handled = true;
+                break;
+            case Key.B:
+                var selected = _rows.FirstOrDefault(r => r.IsSelected);
+                if (selected != null)
+                    Copy(selected);
+                e.Handled = true;
+                break;
+            case Key.Down:
+            case Key.Up:
+                MoveSelection(e.Key == Key.Down ? 1 : -1);
+                e.Handled = true;
+                break;
         }
     }
 
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    private void TopBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        CloseWithAnimation();
+        if (e.ButtonState == MouseButtonState.Pressed)
+            DragMove();
     }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => CloseWithAnimation();
 
     private void CloseWithAnimation()
     {
-        var fadeOut = new DoubleAnimation
+        if (_isClosed)
+            return;
+
+        _version++;
+        var fadeOut = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(120));
+        fadeOut.Completed += (_, _) =>
         {
-            From = 1,
-            To = 0,
-            Duration = TimeSpan.FromMilliseconds(150)
+            if (!_isClosed)
+                Close();
         };
-        fadeOut.Completed += (s, e) => Close();
         BeginAnimation(OpacityProperty, fadeOut);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _isClosed = true;
+        _version++;
+        base.OnClosed(e);
+    }
+
+    private void PartImage_ImageFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        // Icon couldn't be downloaded: fall back to the text label (SET, NEU, ...)
+        if ((sender as FrameworkElement)?.DataContext is SetPart part)
+            part.MarkImageFailed();
+    }
+
+    private void ShowPanel(FrameworkElement panel)
+    {
+        foreach (var p in new FrameworkElement[] { LoadingPanel, ErrorPanel, SearchPanel, ResultsPanel })
+            p.Visibility = p == panel ? Visibility.Visible : Visibility.Collapsed;
+
+        if (panel == LoadingPanel)
+        {
+            var slide = new DoubleAnimation(-140, 420, TimeSpan.FromSeconds(1.1)) { RepeatBehavior = RepeatBehavior.Forever };
+            LoadingBarShift.BeginAnimation(TranslateTransform.XProperty, slide);
+        }
+        else
+        {
+            LoadingBarShift.BeginAnimation(TranslateTransform.XProperty, null);
+        }
+    }
+
+    // ---- Results -------------------------------------------------------------------
+
+    private async Task<List<MarketOrder>> GetOrdersAsync(string slug)
+    {
+        if (_orderCache.TryGetValue(slug, out var cached))
+            return cached;
+
+        var orders = await _api.GetSellOrdersAsync(slug);
+        _orderCache[slug] = orders;
+        return orders;
+    }
+
+    private void BuildParts(List<MarketItem> setItems, MarketItem current)
+    {
+        var root = setItems.FirstOrDefault(i => i.SetRoot == true);
+        _parts = setItems.Count > 1 ? setItems.Select(i => new SetPart(i, root)).ToList() : new List<SetPart>();
+        PartsList.ItemsSource = _parts;
+        PartsList.Visibility = _parts.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        MarkSelectedPart(current.Slug);
+    }
+
+    private void MarkSelectedPart(string slug)
+    {
+        foreach (var p in _parts)
+            p.IsSelected = p.Item.Slug == slug;
+    }
+
+    private async void Part_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not SetPart part || part.Item.Slug == _item?.Slug)
+            return;
+
+        int version = ++_version;
+        MarkSelectedPart(part.Item.Slug);
+        SetHeader(part.Item);
+        RowsList.ItemsSource = null;
+        ShowListMessage("Loading sellers…");
+
+        try
+        {
+            var orders = await GetOrdersAsync(part.Item.Slug);
+            if (version != _version)
+                return;
+            ShowItem(part.Item, orders);
+        }
+        catch (Exception ex)
+        {
+            if (version == _version)
+                ShowListMessage($"Couldn't load sellers.\n{ex.Message}");
+        }
+    }
+
+    private void ShowItem(MarketItem item, List<MarketOrder> orders)
+    {
+        if (_isClosed)
+            return;
+
+        _item = item;
+        _orders = orders;
+        _rank = null;
+        _selectedOrderId = null;
+        _copiedOrderId = null;
+        if (_sort == "rank" && !item.HasRanks)
+            _sort = "price";
+
+        SetHeader(item);
+        ShowPanel(ResultsPanel);
+        Refresh();
+
+        Activate();
+        Focus();
+    }
+
+    private void SetHeader(MarketItem item)
+    {
+        TitleText.Text = item.Name;
+        TitleText.ToolTip = item.Name;
+        DucatsText.Text = item.Ducats is > 0 ? $"{item.Ducats} ducats" : "";
+
+        var rankVisibility = item.HasRanks ? Visibility.Visible : Visibility.Collapsed;
+        SubtitleText.Text = item.HasRanks ? $"Ranks 0–{item.MaxRank}" : "";
+        SubtitleText.Visibility = rankVisibility;
+        RankPanel.Visibility = rankVisibility;
+        RankHeader.Visibility = rankVisibility;
+        SortRankOption.Visibility = rankVisibility;
+    }
+
+    /// <summary>Rebuild stats, filter counts and the seller list from the current state.</summary>
+    private void Refresh()
+    {
+        if (_item == null)
+            return;
+
+        int? max = _item.MaxRank;
+        var matching = _orders.Where(o => _rank == null || o.Rank == _rank).ToList();
+        var inGame = matching.Where(o => o.User?.Status == "ingame").ToList();
+        var online = matching.Where(o => o.User?.Status is "ingame" or "online").ToList();
+
+        StatLow.Text = inGame.Count > 0 ? $"{inGame.Min(o => o.Platinum)}p" : "—";
+        StatMedian.Text = inGame.Count > 0 ? $"{Median(inGame.Select(o => o.Platinum))}p" : "—";
+        StatTotal.Text = matching.Count.ToString();
+        StatInGame.Text = inGame.Count.ToString();
+
+        FilterAllButton.Content = $"All {matching.Count}";
+        FilterOnlineButton.Content = $"Online {online.Count}";
+        FilterInGameButton.Content = $"In game {inGame.Count}";
+        StyleSegment(FilterAllButton, _filter == "all");
+        StyleSegment(FilterOnlineButton, _filter == "online");
+        StyleSegment(FilterInGameButton, _filter == "ingame");
+
+        if (_item.HasRanks && max is int m)
+        {
+            RankLabel.Text = _rank == null ? "Any rank" : $"Rank {_rank} of {m}";
+            RankHint.Text = _rank == null ? $"showing ranks 0–{m}"
+                : _rank == m ? "max rank"
+                : _rank == 0 ? "unranked"
+                : $"{m - _rank} below max";
+            StyleChip(RankAnyButton, _rank == null);
+            StyleChip(RankMaxButton, _rank == m);
+        }
+
+        SortText.Text = SortLabel(_sort);
+
+        var shown = _filter switch
+        {
+            "ingame" => inGame,
+            "online" => online,
+            _ => matching
+        };
+
+        IEnumerable<MarketOrder> sorted = _sort switch
+        {
+            "price-desc" => shown.OrderByDescending(o => o.Platinum).ThenBy(StatusOrder),
+            "rank" => shown.OrderByDescending(o => o.Rank ?? -1).ThenBy(o => o.Platinum).ThenBy(StatusOrder),
+            "newest" => shown.OrderByDescending(o => o.CreatedAt),
+            _ => shown.OrderBy(o => o.Platinum).ThenBy(StatusOrder)
+        };
+
+        _rows = sorted.Select((o, i) => new OrderRow(o, max, i % 2 == 1)).ToList();
+
+        var selected = _rows.FirstOrDefault(r => r.Order.Id == _selectedOrderId)
+                       ?? _rows.FirstOrDefault(r => r.Status == "ingame")
+                       ?? _rows.FirstOrDefault();
+        foreach (var r in _rows)
+        {
+            r.IsSelected = r == selected;
+            r.IsCopied = r.Order.Id == _copiedOrderId;
+        }
+        _selectedOrderId = selected?.Order.Id;
+
+        RowsList.ItemsSource = _rows;
+        if (_rows.Count > 0)
+            RowsList.ScrollIntoView(_rows[0]);
+
+        if (_rows.Count > 0)
+            ShowListMessage(null);
+        else if (matching.Count == 0 && _rank != null)
+            ShowListMessage("No sellers with this rank. Try Any.");
+        else if (matching.Count == 0)
+            ShowListMessage("Nobody is selling this item right now.");
+        else
+            ShowListMessage("No sellers with this status right now.");
+
+        UpdateFooter();
+    }
+
+    private static int StatusOrder(MarketOrder o) => o.User?.Status switch
+    {
+        "ingame" => 0,
+        "online" => 1,
+        _ => 2
+    };
+
+    private static int Median(IEnumerable<int> values)
+    {
+        var s = values.OrderBy(v => v).ToList();
+        int k = s.Count / 2;
+        return s.Count % 2 == 1 ? s[k] : (int)Math.Round((s[k - 1] + s[k]) / 2.0);
+    }
+
+    private static string SortLabel(string sort) => sort switch
+    {
+        "price-desc" => "Price, high first",
+        "rank" => "Rank, highest first",
+        "newest" => "Newest first",
+        _ => "Price, low first"
+    };
+
+    private void ShowListMessage(string? message)
+    {
+        ListMessage.Text = message ?? "";
+        ListMessage.Visibility = message == null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void UpdateFooter()
+    {
+        var copied = _rows.FirstOrDefault(r => r.IsCopied);
+        FooterNote.Text = copied != null
+            ? $"Whisper to {copied.User} copied, paste it in chat"
+            : "B copies the whisper for the selected seller";
+        FooterNote.Foreground = Res(copied != null ? "AccentText" : "Muted");
+    }
+
+    private Brush Res(string key) => (Brush)FindResource(key);
+
+    private void StyleSegment(Button button, bool on)
+    {
+        button.Background = on ? Res("Selected") : Brushes.Transparent;
+        button.Foreground = Res(on ? "TextStrong" : "Muted");
+    }
+
+    private void StyleChip(Button button, bool on)
+    {
+        button.BorderBrush = Res(on ? "Accent" : "ControlBorder");
+        button.Foreground = Res(on ? "AccentText" : "Soft");
+    }
+
+    // ---- Filters, rank, sort ---------------------------------------------------------
+
+    private void Filter_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is string filter)
+        {
+            _filter = filter;
+            Refresh();
+        }
+    }
+
+    private void RankDown_Click(object sender, RoutedEventArgs e) => StepRank(-1);
+
+    private void RankUp_Click(object sender, RoutedEventArgs e) => StepRank(1);
+
+    private void StepRank(int delta)
+    {
+        if (_item?.MaxRank is not int max || max <= 0)
+            return;
+
+        int current = _rank ?? (delta > 0 ? -1 : max + 1);
+        _rank = Math.Clamp(current + delta, 0, max);
+        Refresh();
+    }
+
+    private void RankAny_Click(object sender, RoutedEventArgs e)
+    {
+        _rank = null;
+        Refresh();
+    }
+
+    private void RankMax_Click(object sender, RoutedEventArgs e)
+    {
+        if (_item?.MaxRank is int max)
+        {
+            _rank = max;
+            Refresh();
+        }
+    }
+
+    private void SortButton_Click(object sender, RoutedEventArgs e) => SortPopup.IsOpen = !SortPopup.IsOpen;
+
+    private void SortOption_Click(object sender, RoutedEventArgs e)
+    {
+        SortPopup.IsOpen = false;
+        if ((sender as Button)?.Tag is string sort)
+        {
+            _sort = sort;
+            Refresh();
+        }
+    }
+
+    // ---- Selection, copy, open site ---------------------------------------------------
+
+    private void Row_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is OrderRow row)
+            Select(row, scrollIntoView: false);
+    }
+
+    private void Buy_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is OrderRow row)
+        {
+            Select(row, scrollIntoView: false);
+            Copy(row);
+        }
+    }
+
+    private void Select(OrderRow row, bool scrollIntoView)
+    {
+        foreach (var r in _rows)
+            r.IsSelected = r == row;
+        _selectedOrderId = row.Order.Id;
+
+        // Works with virtualization: the row may not have a container until it is scrolled to
+        if (scrollIntoView)
+            RowsList.ScrollIntoView(row);
+    }
+
+    private void MoveSelection(int delta)
+    {
+        if (_rows.Count == 0)
+            return;
+
+        int index = _rows.FindIndex(r => r.IsSelected);
+        index = Math.Clamp(index < 0 ? 0 : index + delta, 0, _rows.Count - 1);
+        Select(_rows[index], scrollIntoView: true);
+    }
+
+    private void Copy(OrderRow row)
+    {
+        if (_item == null)
+            return;
+
+        if (!TrySetClipboard(BuildWhisper(row.Order, _item)))
+        {
+            FooterNote.Text = "Couldn't access the clipboard, try again";
+            FooterNote.Foreground = Res("AccentText");
+            return;
+        }
+
+        foreach (var r in _rows)
+            r.IsCopied = r == row;
+        _copiedOrderId = row.Order.Id;
+        UpdateFooter();
+    }
+
+    /// <summary>The same message warframe.market copies for "Buy".</summary>
+    public static string BuildWhisper(MarketOrder order, MarketItem item)
+    {
+        var name = item.HasRanks && order.Rank != null ? $"{item.Name} (rank {order.Rank})" : item.Name;
+        return $"/w {order.User?.IngameName} Hi! I want to buy: \"{name}\" for {order.Platinum} platinum. (warframe.market)";
+    }
+
+    private static bool TrySetClipboard(string text)
+    {
+        // The clipboard can be briefly locked by another app; retry a couple of times
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                Clipboard.SetText(text);
+                return true;
+            }
+            catch (COMException)
+            {
+                System.Threading.Thread.Sleep(40);
+            }
+        }
+        return false;
+    }
+
+    private void OpenSite_Click(object sender, RoutedEventArgs e) => OpenSite();
+
+    private void OpenSite()
+    {
+        if (_item == null)
+            return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(WarframeMarketAPI.ItemPageUrl(_item.Slug)) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Couldn't open browser: {ex.Message}");
+        }
+
+        CloseWithAnimation();
+    }
+
+    // ---- Manual search -------------------------------------------------------------
+
+    private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var text = SearchBox.Text;
+        SearchPlaceholder.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        int version = ++_suggestionVersion;
+        List<MarketItem> items;
+        try
+        {
+            items = await _api.SuggestAsync(text, 6);
+        }
+        catch
+        {
+            items = new List<MarketItem>();
+        }
+
+        if (version != _suggestionVersion)
+            return;
+
+        _suggestions = items.Select(i => new Suggestion(i)).ToList();
+        if (_suggestions.Count > 0)
+            _suggestions[0].IsSelected = true;
+
+        SuggestionList.ItemsSource = _suggestions;
+        SuggestionEmpty.Visibility = _suggestions.Count == 0 && text.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Down or Key.Up && _suggestions.Count > 0)
+        {
+            int index = _suggestions.FindIndex(s => s.IsSelected);
+            index = Math.Clamp(index + (e.Key == Key.Down ? 1 : -1), 0, _suggestions.Count - 1);
+            for (int i = 0; i < _suggestions.Count; i++)
+                _suggestions[i].IsSelected = i == index;
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter)
+        {
+            var pick = _suggestions.FirstOrDefault(s => s.IsSelected);
+            if (pick != null)
+                _ = LoadItemAsync(pick.Item);
+            e.Handled = true;
+        }
+    }
+
+    private void Suggestion_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is Suggestion suggestion)
+            _ = LoadItemAsync(suggestion.Item);
     }
 }

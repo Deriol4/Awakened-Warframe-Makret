@@ -1,6 +1,6 @@
 using System;
+using System.Drawing;
 using System.Threading.Tasks;
-using AwakenedWarframeMarket.Models;
 
 namespace AwakenedWarframeMarket.Services;
 
@@ -9,80 +9,114 @@ public class PriceCheckService
     private readonly ScreenCapture _screenCapture;
     private readonly OCRService _ocrService;
     private readonly WarframeMarketAPI _marketApi;
+    private readonly Func<bool> _isDebugEnabled;
 
-    public PriceCheckService(ScreenCapture screenCapture, OCRService ocrService, WarframeMarketAPI marketApi)
+    // Only one overlay at a time: a new price check replaces the open one
+    private OverlayWindow? _current;
+
+    // isDebugEnabled is read on every check, so toggling Debug Mode in Settings takes effect immediately
+    public PriceCheckService(ScreenCapture screenCapture, OCRService ocrService, WarframeMarketAPI marketApi, Func<bool> isDebugEnabled)
     {
         _screenCapture = screenCapture;
         _ocrService = ocrService;
         _marketApi = marketApi;
+        _isDebugEnabled = isDebugEnabled;
     }
 
+    /// <summary>Called on the UI thread when the hotkey is pressed.</summary>
     public async Task CheckPriceAsync()
     {
-        // Show overlay immediately with loading state
-        OverlayWindow? overlay = null;
+        var debug = _isDebugEnabled();
 
-        await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+        // Close the previous overlay and let it disappear before grabbing the screen
+        if (_current != null)
         {
-            overlay = new OverlayWindow();
-            overlay.Show();
-            overlay.ShowLoadingState("Scanning item...");
-        });
+            _current.Close();
+            _current = null;
+            await Task.Delay(60);
+        }
 
-        if (overlay == null) return;
-
+        // Capture first: the overlay must not end up in the screenshot
+        Bitmap screenshot;
         try
         {
-            // Perform OCR in background
-            var itemName = await Task.Run(() =>
-            {
-                using var screenshot = _screenCapture.CaptureItemCell();
-                return _ocrService.RecognizeItemName(screenshot);
-            });
-
-            if (string.IsNullOrWhiteSpace(itemName))
-            {
-                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                    overlay.ShowError("Could not detect item name.\nMake sure your cursor is over the item name."));
-                return;
-            }
-
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                overlay.UpdateStatus($"Searching for '{itemName}'..."));
-
-            // Find item on market
-            var urlName = await _marketApi.FindClosestItemNameAsync(itemName);
-
-            if (urlName == null)
-            {
-                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                    overlay.ShowError($"Item '{itemName}' not found on warframe.market"));
-                return;
-            }
-
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                overlay.UpdateStatus($"Loading prices..."));
-
-            // Get prices
-            var prices = await _marketApi.GetItemPricesAsync(urlName);
-
-            // Format item name for display
-            var displayName = FormatItemName(urlName);
-
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                overlay.SetItemData(displayName, prices));
+            screenshot = _screenCapture.CaptureItemCell();
         }
         catch (Exception ex)
         {
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                overlay.ShowError($"Error: {ex.Message}"));
+            System.Windows.MessageBox.Show($"Couldn't capture the screen: {ex.Message}", "Awakened Warframe Market");
+            return;
         }
-    }
 
-    private string FormatItemName(string urlName)
-    {
-        // Convert "arcane_blessing" to "Arcane Blessing"
-        return System.Globalization.CultureInfo.CurrentCulture.TextInfo
-            .ToTitleCase(urlName.Replace("_", " "));
+        var overlay = new OverlayWindow(_marketApi);
+        _current = overlay;
+        overlay.Closed += (_, _) =>
+        {
+            if (_current == overlay)
+                _current = null;
+        };
+        overlay.ShowLoading("Reading the item under the cursor", "");
+        overlay.Show();
+
+        try
+        {
+            // OCR in the background
+            var (ocr, debugDir) = await Task.Run(() =>
+            {
+                using (screenshot)
+                {
+                    var result = _ocrService.Recognize(screenshot, keepProcessedImage: debug);
+
+                    string? dir = null;
+                    try
+                    {
+                        if (debug)
+                            dir = DebugDump.SaveOcr(screenshot, result);
+                    }
+                    finally
+                    {
+                        result.ProcessedImage?.Dispose();
+                    }
+
+                    return (result, dir);
+                }
+            });
+
+            var itemName = ocr.Name;
+
+            if (string.IsNullOrWhiteSpace(itemName))
+            {
+                if (debug)
+                    overlay.SetDebugNote("OCR: nothing read");
+                overlay.ShowSearch("", "Couldn't read the item name");
+                return;
+            }
+
+            overlay.ShowLoading("Looking up the item", itemName);
+
+            var match = await _marketApi.FindBestMatchAsync(itemName);
+            DebugDump.SaveMatch(debugDir, itemName, match);
+
+            if (debug)
+                overlay.SetDebugNote($"OCR: \"{itemName}\" ({match?.Method ?? "no match"})");
+
+            if (match == null && !_marketApi.CatalogueLoaded)
+            {
+                overlay.ShowError("Couldn't reach warframe.market. Check your connection and try again.");
+                return;
+            }
+
+            if (match == null)
+            {
+                overlay.ShowSearch(itemName, "Couldn't match the name");
+                return;
+            }
+
+            await overlay.LoadItemAsync(match.Item);
+        }
+        catch (Exception ex)
+        {
+            overlay.ShowError(ex.Message);
+        }
     }
 }

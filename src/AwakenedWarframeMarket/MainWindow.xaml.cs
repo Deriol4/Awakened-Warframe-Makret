@@ -1,6 +1,6 @@
 using System;
 using System.Windows;
-using System.Windows.Input;
+using System.Windows.Media;
 using AwakenedWarframeMarket.Models;
 using AwakenedWarframeMarket.Services;
 
@@ -12,9 +12,15 @@ public partial class MainWindow : Window
     private readonly HotkeyManager _hotkeyManager;
     private readonly OCRService _ocrService;
     private readonly WarframeMarketAPI _marketApi;
+    private readonly ForegroundWatcher _foreground = new();
     private PriceCheckService? _priceCheckService;
     private Settings _settings;
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
+
+    private bool _ready;               // OCR initialised, price checks possible
+    private bool _hotkeyUnavailable;   // another app owns the key combination
+    private bool _editingSettings;     // settings window open: keep the hotkey free so it can be captured
+    private string? _startupError;
 
     public MainWindow()
     {
@@ -28,105 +34,145 @@ public partial class MainWindow : Window
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
+        StateChanged += MainWindow_StateChanged;
 
         SetupTrayIcon();
+        UpdateHotkeyDisplay();
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        // Initialize hotkey manager
         _hotkeyManager.Initialize(this);
+        UpdateStatus();
 
-        // Show loading status
-        StatusText.Text = "Initializing...";
+        // Fetch the item catalogue in the background while OCR starts up
+        _ = _marketApi.PreloadAsync();
 
         try
         {
-            // Initialize OCR
             await _ocrService.InitializeAsync();
 
-            // Create price check service
-            var screenCapture = new ScreenCapture(_settings.DebugMode);
-            _priceCheckService = new PriceCheckService(screenCapture, _ocrService, _marketApi);
+            var screenCapture = new ScreenCapture();
+            _priceCheckService = new PriceCheckService(screenCapture, _ocrService, _marketApi, () => _settings.DebugMode);
+            _ready = true;
 
-            // Register hotkey
-            RegisterCurrentHotkey();
-
-            StatusText.Text = "Ready";
-            UpdateHotkeyDisplay();
-
-            // Show startup message
-            MessageBox.Show(
-                $"Awakened Warframe Market started!\n\nPress {GetHotkeyDisplayString()} to check prices.\n\nHover your cursor over an item name in Warframe, then press the hotkey.",
-                "Awakened Warframe Market",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            // Take the hotkey only while Warframe (or this app) is in front
+            _foreground.Changed += UpdateHotkeyRegistration;
+            _foreground.Start();
+            UpdateHotkeyRegistration();
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Error";
-            StatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 100, 100));
-            MessageBox.Show($"Initialization error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            _startupError = ex.Message;
+            UpdateStatus();
         }
     }
 
-    private void RegisterCurrentHotkey()
+    // ---- Hotkey ----------------------------------------------------------------------
+
+    private ModifierKeysAndKey CurrentHotkey() =>
+        new(HotkeyManager.ParseModifier(_settings.HotkeyModifier), HotkeyManager.ParseKey(_settings.HotkeyKey));
+
+    private readonly record struct ModifierKeysAndKey(System.Windows.Input.ModifierKeys Modifiers, System.Windows.Input.Key Key);
+
+    private bool ShouldListen =>
+        _ready && !_editingSettings &&
+        (!_settings.OnlyInWarframe || _foreground.WarframeInFront || _foreground.OwnWindowInFront);
+
+    /// <summary>Register or release the global hotkey depending on what's in front.</summary>
+    private void UpdateHotkeyRegistration()
     {
-        var modifier = HotkeyManager.ParseModifier(_settings.HotkeyModifier);
-        var key = HotkeyManager.ParseKey(_settings.HotkeyKey);
-
-        var success = _hotkeyManager.RegisterHotkey(modifier, key, OnHotkeyPressed);
-
-        if (!success)
+        if (ShouldListen)
         {
-            MessageBox.Show(
-                $"Failed to register hotkey {GetHotkeyDisplayString()}.\nIt may be in use by another application.",
-                "Hotkey Error",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            if (!_hotkeyManager.IsRegistered)
+            {
+                var hk = CurrentHotkey();
+                _hotkeyUnavailable = !_hotkeyManager.RegisterHotkey(hk.Modifiers, hk.Key, OnHotkeyPressed);
+            }
         }
+        else
+        {
+            _hotkeyManager.Unregister();
+        }
+
+        UpdateStatus();
     }
 
     private void OnHotkeyPressed()
     {
         if (_priceCheckService != null)
-        {
             _ = _priceCheckService.CheckPriceAsync();
-        }
     }
 
     private void UpdateHotkeyDisplay()
     {
-        HotkeyText.Text = $"Press {GetHotkeyDisplayString()} to check prices";
+        var hk = CurrentHotkey();
+        HotkeyText.Text = HotkeyManager.Display(hk.Modifiers, hk.Key);
     }
 
-    private string GetHotkeyDisplayString()
+    // ---- Status card ------------------------------------------------------------------
+
+    private void UpdateStatus()
     {
-        var modifier = HotkeyManager.ParseModifier(_settings.HotkeyModifier);
-        var key = HotkeyManager.ParseKey(_settings.HotkeyKey);
-        return $"{HotkeyManager.ModifierToString(modifier)}+{key}";
+        var hotkey = HotkeyText.Text;
+
+        if (_startupError != null)
+            SetStatus("Danger", "Couldn't start", $"Text recognition failed to load: {_startupError}");
+        else if (!_ready)
+            SetStatus("Muted", "Starting…", "Preparing text recognition");
+        else if (_hotkeyUnavailable)
+            SetStatus("Danger", "Hotkey unavailable", $"{hotkey} is taken by another app. Pick another one in Settings.");
+        else if (!_settings.OnlyInWarframe)
+            SetStatus("InGame", "Ready", $"{hotkey} works in any window");
+        else if (_foreground.WarframeInFront || _foreground.OwnWindowInFront)
+            SetStatus("InGame", "Ready", $"Hover an item in Warframe and press {hotkey}");
+        else
+            SetStatus("Accent", "Waiting for Warframe", $"{hotkey} works while Warframe is in front");
     }
+
+    private void SetStatus(string dotBrushKey, string title, string detail)
+    {
+        StatusDot.Fill = (Brush)FindResource(dotBrushKey);
+        StatusTitle.Text = title;
+        StatusDetail.Text = detail;
+    }
+
+    // ---- Buttons -------------------------------------------------------------------
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        var settingsWindow = new SettingsWindow(_settings, _settingsManager);
-        settingsWindow.Owner = this;
+        // Release the hotkey while editing so the settings window can capture the same combination
+        _editingSettings = true;
+        _hotkeyManager.Unregister();
 
-        if (settingsWindow.ShowDialog() == true)
+        try
         {
-            _settings = _settingsManager.LoadSettings();
-            RegisterCurrentHotkey();
-            UpdateHotkeyDisplay();
+            var settingsWindow = new SettingsWindow(_settings, _settingsManager) { Owner = this };
+            if (settingsWindow.ShowDialog() == true)
+                _settings = _settingsManager.LoadSettings();
         }
+        finally
+        {
+            _editingSettings = false;
+        }
+
+        UpdateHotkeyDisplay();
+        _hotkeyUnavailable = false;
+        UpdateHotkeyRegistration();
     }
 
-    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+    // Minimizing (title bar button or taskbar) hides the app to the tray
+    private void MinimizeWindow_Click(object sender, RoutedEventArgs e) => Hide();
+
+    private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
-        Hide();
-        _notifyIcon?.ShowBalloonTip(2000, "Awakened Warframe Market",
-            $"Running in background. Press {GetHotkeyDisplayString()} to check prices.",
-            System.Windows.Forms.ToolTipIcon.Info);
+        if (WindowState == WindowState.Minimized)
+            Hide();
     }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e) => Hide();
 
     private void SetupTrayIcon()
     {
@@ -136,28 +182,18 @@ public partial class MainWindow : Window
             Visible = true
         };
 
-        // Create icon from text (simple colored square)
+        // Simple generated icon: gold square with a "W"
         using var bitmap = new System.Drawing.Bitmap(32, 32);
         using var g = System.Drawing.Graphics.FromImage(bitmap);
-        g.Clear(System.Drawing.Color.FromArgb(212, 175, 55)); // Gold color
+        g.Clear(System.Drawing.Color.FromArgb(200, 167, 90));
         g.DrawString("W", new System.Drawing.Font("Arial", 18, System.Drawing.FontStyle.Bold),
             System.Drawing.Brushes.Black, 4, 2);
         _notifyIcon.Icon = System.Drawing.Icon.FromHandle(bitmap.GetHicon());
 
-        _notifyIcon.DoubleClick += (s, e) =>
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-        };
+        _notifyIcon.DoubleClick += (s, e) => ShowFromTray();
 
         var contextMenu = new System.Windows.Forms.ContextMenuStrip();
-        contextMenu.Items.Add("Open", null, (s, e) =>
-        {
-            Show();
-            WindowState = WindowState.Normal;
-            Activate();
-        });
+        contextMenu.Items.Add("Open", null, (s, e) => ShowFromTray());
         contextMenu.Items.Add("-");
         contextMenu.Items.Add("Exit", null, (s, e) =>
         {
@@ -168,8 +204,16 @@ public partial class MainWindow : Window
         _notifyIcon.ContextMenuStrip = contextMenu;
     }
 
+    private void ShowFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _foreground.Dispose();
         _hotkeyManager.Dispose();
         _ocrService.Dispose();
         _notifyIcon?.Dispose();
@@ -178,7 +222,8 @@ public partial class MainWindow : Window
     public void UpdateSettings(Settings newSettings)
     {
         _settings = newSettings;
-        RegisterCurrentHotkey();
         UpdateHotkeyDisplay();
+        _hotkeyManager.Unregister();
+        UpdateHotkeyRegistration();
     }
 }

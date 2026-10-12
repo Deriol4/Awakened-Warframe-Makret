@@ -1,19 +1,11 @@
 using System;
 using System.Drawing;
-using System.IO;
 using System.Windows.Forms;
 
 namespace AwakenedWarframeMarket.Services;
 
 public class ScreenCapture
 {
-    private readonly bool _debugMode;
-
-    public ScreenCapture(bool debugMode = false)
-    {
-        _debugMode = debugMode;
-    }
-
     public Bitmap CaptureItemCell()
     {
         var cursor = Cursor.Position;
@@ -34,14 +26,7 @@ public class ScreenCapture
         x = Math.Clamp(x, screen.Bounds.Left, screen.Bounds.Right - captureWidth);
         y = Math.Clamp(y, screen.Bounds.Top, screen.Bounds.Bottom - captureHeight);
 
-        var bitmap = CaptureRegion(x, y, captureWidth, captureHeight);
-
-        if (_debugMode)
-        {
-            SaveDebugImage(bitmap);
-        }
-
-        return bitmap;
+        return CaptureRegion(x, y, captureWidth, captureHeight);
     }
 
     private Bitmap CaptureRegion(int x, int y, int width, int height)
@@ -54,24 +39,5 @@ public class ScreenCapture
         }
 
         return bitmap;
-    }
-
-    private void SaveDebugImage(Bitmap bitmap)
-    {
-        try
-        {
-            var debugDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug");
-            Directory.CreateDirectory(debugDir);
-
-            var filename = $"debug_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-            var filepath = Path.Combine(debugDir, filename);
-
-            bitmap.Save(filepath);
-            System.Diagnostics.Debug.WriteLine($"Debug image saved: {filepath}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Error saving debug image: {ex.Message}");
-        }
     }
 }

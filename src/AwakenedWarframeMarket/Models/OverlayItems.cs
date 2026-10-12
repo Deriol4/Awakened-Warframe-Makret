@@ -1,0 +1,166 @@
+using System;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+
+namespace AwakenedWarframeMarket.Models;
+
+/// <summary>Minimal INotifyPropertyChanged base for the overlay's list items.</summary>
+public abstract class Observable : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (Equals(field, value))
+            return false;
+        field = value;
+        Raise(name);
+        return true;
+    }
+
+    protected void Raise(string? name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>One seller in the overlay table.</summary>
+public class OrderRow : Observable
+{
+    private bool _isSelected;
+    private bool _isCopied;
+
+    public OrderRow(MarketOrder order, int? maxRank, bool isOdd)
+    {
+        Order = order;
+        IsOdd = isOdd;
+        ShowRank = maxRank is > 0;
+        RankText = ShowRank && order.Rank != null ? $"{order.Rank}/{maxRank}" : "-";
+        IsMaxRank = ShowRank && order.Rank == maxRank;
+    }
+
+    public MarketOrder Order { get; }
+
+    public string Price => $"{Order.Platinum}p";
+    public string Quantity => Order.Quantity.ToString();
+    public string User => Order.User?.IngameName ?? "";
+    public string Status => Order.User?.Status ?? "offline";
+    public string StatusLabel => Status switch { "ingame" => "In game", "online" => "Online", _ => "Offline" };
+    public bool IsOffline => Status != "ingame" && Status != "online";
+    public string Listed => FormatAgo(Order.CreatedAt);
+
+    public bool ShowRank { get; }
+    public string RankText { get; }
+    public bool IsMaxRank { get; }
+    public bool IsOdd { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => Set(ref _isSelected, value);
+    }
+
+    public bool IsCopied
+    {
+        get => _isCopied;
+        set
+        {
+            if (Set(ref _isCopied, value))
+                Raise(nameof(CopyLabel));
+        }
+    }
+
+    public string CopyLabel => IsCopied ? "Copied" : "Buy";
+    public string CopyTooltip => $"Copy whisper to {User}";
+
+    public static string FormatAgo(DateTimeOffset time)
+    {
+        var diff = DateTimeOffset.UtcNow - time;
+        if (diff.TotalMinutes < 1) return "just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
+        if (diff.TotalDays < 365) return $"{(int)(diff.TotalDays / 30)}mo ago";
+        return $"{(int)(diff.TotalDays / 365)}y ago";
+    }
+}
+
+/// <summary>A circle in the set switcher: the whole set or one of its parts.</summary>
+public class SetPart : Observable
+{
+    private bool _isSelected;
+    private bool _imageFailed;
+
+    public SetPart(MarketItem item, MarketItem? setRoot)
+    {
+        Item = item;
+        IsSetRoot = item.SetRoot == true;
+        ShortLabel = MakeShortLabel(item, setRoot);
+        QuantityText = item.QuantityInSet is > 1 ? $"×{item.QuantityInSet}" : "×1";
+        HasQuantity = !IsSetRoot;
+    }
+
+    public MarketItem Item { get; }
+    public string Name => Item.Name;
+
+    // The set shows its own picture. Parts share that same picture on warframe.market, so for them only
+    // the part's type icon (blueprint, neuroptics, ...) is used; without one the text label is shown.
+    public string? ImageUrl => IsSetRoot ? Item.ThumbUrl : Item.SubIconUrl;
+    public bool HasImage => ImageUrl != null && !_imageFailed;
+
+    public void MarkImageFailed()
+    {
+        if (_imageFailed)
+            return;
+        _imageFailed = true;
+        Raise(nameof(HasImage));
+    }
+    public bool IsSetRoot { get; }
+    public string ShortLabel { get; }
+    public string QuantityText { get; }
+    public bool HasQuantity { get; }
+    public double Size => IsSetRoot ? 52 : 40;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => Set(ref _isSelected, value);
+    }
+
+    // "Volt Prime Neuroptics Blueprint" in set "Volt Prime Set" -> "NEU"; "Volt Prime Blueprint" -> "BP"
+    private static string MakeShortLabel(MarketItem item, MarketItem? setRoot)
+    {
+        if (item.SetRoot == true)
+            return "SET";
+
+        var name = item.Name;
+        var baseName = setRoot?.Name;
+        if (!string.IsNullOrEmpty(baseName) && baseName.EndsWith(" Set", StringComparison.OrdinalIgnoreCase))
+            baseName = baseName[..^4];
+        if (!string.IsNullOrEmpty(baseName) && name.StartsWith(baseName, StringComparison.OrdinalIgnoreCase))
+            name = name[baseName.Length..];
+
+        var word = name
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(w => !w.Equals("Blueprint", StringComparison.OrdinalIgnoreCase));
+
+        if (word == null)
+            return "BP";
+        return word.Length <= 3 ? word.ToUpperInvariant() : word[..3].ToUpperInvariant();
+    }
+}
+
+/// <summary>A row in the "Closest items" list of the manual search.</summary>
+public class Suggestion : Observable
+{
+    private bool _isSelected;
+
+    public Suggestion(MarketItem item) => Item = item;
+
+    public MarketItem Item { get; }
+    public string Name => Item.Name;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => Set(ref _isSelected, value);
+    }
+}

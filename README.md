@@ -6,8 +6,12 @@ A fast overlay tool for checking Warframe item prices from [warframe.market](htt
 
 - **Global Hotkey**: Press `Ctrl+D` (customizable) to check prices instantly
 - **OCR Detection**: Automatically reads item names from your screen
-- **Fast API Lookup**: Shows top 20 sell orders sorted by price
-- **Overlay Display**: Clean, semi-transparent overlay with price information
+- **All sellers**: price, quantity, rank and listing age for every seller, filter by All / Online / In game
+- **Summary**: lowest and median price in game, how many sellers were found and how many are in game now
+- **Ranks**: pick the rank you want for mods and arcanes ("Rank 3 of 5"), or Any / Max
+- **Sets**: switch between the whole set and each of its parts right in the overlay
+- **Buy**: one click copies the whisper for a seller, ready to paste into the game chat
+- **Manual search**: if the name can't be read, type it and pick from the closest items
 - **Tray Support**: Minimize to system tray
 
 ## Requirements
@@ -27,31 +31,39 @@ A fast overlay tool for checking Warframe item prices from [warframe.market](htt
 
 1. Start Warframe
 2. Launch Awakened Warframe Market
-3. Hover your cursor over an item name in Warframe
+3. Hover your cursor over an item in Warframe (its name is read from the bottom of the cell)
 4. Press `Ctrl+D` (or your custom hotkey)
 5. View prices in the overlay
 6. Press `ESC` or click `✕` to close the overlay
 
+### Keys in the overlay
+
+| Key | Action |
+|-----|--------|
+| `B` | Copy the whisper for the selected seller (or click **Buy** next to any seller) |
+| `T` | Open the item on warframe.market |
+| `↑` `↓` | Move the selection between sellers |
+| `Esc` | Close |
+
+In the manual search: type the name, `↑` `↓` to choose, `Enter` to search.
+
+The overlay closes by itself when it loses focus: when you click back into the game, Alt+Tab away or open the item on the site.
+
+By default the hotkey is only taken while Warframe (or this app) is in front, so other programs can use the same keys. Turn this off in Settings to make it work everywhere.
+
 ## Settings
 
 Click the **Settings** button to customize:
-- **Hotkey**: Change the modifier (Ctrl, Alt, Shift) and key
+- **Hotkey**: click the field and press the combination you want
+- **Only while Warframe is in front**: release the hotkey for other apps when you're not in the game (on by default)
 - **Debug Mode**: Enable to save screenshots for troubleshooting
 
 ## Hotkey Options
 
-Modifiers:
-- Ctrl
-- Alt
-- Shift
-- Ctrl+Shift
-- Ctrl+Alt
-- Alt+Shift
+- Ctrl, Alt and/or Shift together with a letter (A-Z) or a digit (0-9), e.g. `Ctrl + D`, `Ctrl + Shift + 1`
+- F1-F12, alone or with modifiers
 
-Keys:
-- A-Z
-- F1-F12
-- 0-9
+A plain letter or digit without a modifier isn't allowed: it would fire while you type in the game chat.
 
 ## Troubleshooting
 
@@ -64,9 +76,9 @@ Keys:
 - Another application may be using the same hotkey
 - Try a different key combination in Settings
 
-### "Item not found"
-- The OCR may have misread the name
-- Try positioning cursor closer to the center of the item name
+### "Couldn't match the name"
+- The OCR misread the name: type the correct name in the search box and press `Enter`
+- Enable Debug Mode to see what was captured and read (`debug` folder next to the exe)
 
 ## Building from Source
 

@@ -1,6 +1,5 @@
-using System;
 using System.Windows;
-using System.Windows.Controls;
+using System.Windows.Input;
 using AwakenedWarframeMarket.Models;
 using AwakenedWarframeMarket.Services;
 
@@ -11,6 +10,10 @@ public partial class SettingsWindow : Window
     private readonly Settings _settings;
     private readonly SettingsManager _settingsManager;
 
+    private ModifierKeys _modifiers;
+    private Key _key;
+    private bool _capturing;
+
     public SettingsWindow(Settings settings, SettingsManager settingsManager)
     {
         InitializeComponent();
@@ -18,105 +21,113 @@ public partial class SettingsWindow : Window
         _settings = settings;
         _settingsManager = settingsManager;
 
-        PopulateKeyComboBox();
-        LoadCurrentSettings();
+        _modifiers = HotkeyManager.ParseModifier(settings.HotkeyModifier);
+        _key = HotkeyManager.ParseKey(settings.HotkeyKey);
+        OnlyInWarframeCheckBox.IsChecked = settings.OnlyInWarframe;
+        DebugModeCheckBox.IsChecked = settings.DebugMode;
 
-        ModifierComboBox.SelectionChanged += OnSelectionChanged;
-        KeyComboBox.SelectionChanged += OnSelectionChanged;
+        ShowHotkey();
     }
 
-    private void PopulateKeyComboBox()
+    // ---- Hotkey capture --------------------------------------------------------------
+
+    private void HotkeyBox_Click(object sender, RoutedEventArgs e)
     {
-        // Add letter keys A-Z
-        for (char c = 'A'; c <= 'Z'; c++)
-        {
-            KeyComboBox.Items.Add(new ComboBoxItem { Content = c.ToString(), Tag = c.ToString() });
-        }
-
-        // Add function keys F1-F12
-        for (int i = 1; i <= 12; i++)
-        {
-            KeyComboBox.Items.Add(new ComboBoxItem { Content = $"F{i}", Tag = $"F{i}" });
-        }
-
-        // Add number keys 0-9
-        for (int i = 0; i <= 9; i++)
-        {
-            KeyComboBox.Items.Add(new ComboBoxItem { Content = i.ToString(), Tag = $"D{i}" });
-        }
+        _capturing = true;
+        HotkeyBoxText.Text = "Press a key combination…";
+        HotkeyBoxText.Foreground = (System.Windows.Media.Brush)FindResource("Muted");
+        ShowHint("Esc to keep the current one");
     }
 
-    private void LoadCurrentSettings()
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Set modifier
-        foreach (ComboBoxItem item in ModifierComboBox.Items)
+        if (!_capturing)
         {
-            if (item.Tag?.ToString()?.Equals(_settings.HotkeyModifier, StringComparison.OrdinalIgnoreCase) == true)
+            if (e.Key == Key.Escape)
             {
-                ModifierComboBox.SelectedItem = item;
-                break;
+                DialogResult = false;
+                e.Handled = true;
             }
-        }
-
-        if (ModifierComboBox.SelectedItem == null)
-            ModifierComboBox.SelectedIndex = 0;
-
-        // Set key
-        foreach (ComboBoxItem item in KeyComboBox.Items)
-        {
-            if (item.Tag?.ToString()?.Equals(_settings.HotkeyKey, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                KeyComboBox.SelectedItem = item;
-                break;
-            }
-        }
-
-        if (KeyComboBox.SelectedItem == null)
-            KeyComboBox.SelectedIndex = 3; // D
-
-        // Debug mode
-        DebugModeCheckBox.IsChecked = _settings.DebugMode;
-
-        UpdateHotkeyDisplay();
-    }
-
-    private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        UpdateHotkeyDisplay();
-    }
-
-    private void UpdateHotkeyDisplay()
-    {
-        var modifier = (ModifierComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Ctrl";
-        var key = (KeyComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "D";
-        CurrentHotkeyText.Text = $"{modifier}+{key}";
-    }
-
-    private void SaveButton_Click(object sender, RoutedEventArgs e)
-    {
-        var modifierItem = ModifierComboBox.SelectedItem as ComboBoxItem;
-        var keyItem = KeyComboBox.SelectedItem as ComboBoxItem;
-
-        if (modifierItem == null || keyItem == null)
-        {
-            MessageBox.Show("Please select both a modifier and a key.", "Invalid Selection",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        _settings.HotkeyModifier = modifierItem.Tag?.ToString() ?? "Control";
-        _settings.HotkeyKey = keyItem.Tag?.ToString() ?? "D";
+        e.Handled = true;
+
+        // Alt combinations arrive as Key.System
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var modifiers = Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift);
+
+        if (key == Key.Escape)
+        {
+            StopCapture(null);
+            return;
+        }
+
+        // Only modifiers held so far: show them and wait for the main key
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift
+            or Key.LWin or Key.RWin)
+        {
+            var held = HotkeyManager.ModifierToString(modifiers);
+            HotkeyBoxText.Text = string.IsNullOrEmpty(held) ? "Press a key combination…" : held.Replace("+", " + ") + " + …";
+            return;
+        }
+
+        bool isLetterOrDigit = key is >= Key.A and <= Key.Z or >= Key.D0 and <= Key.D9;
+        bool isFunctionKey = key is >= Key.F1 and <= Key.F12;
+
+        if (!isLetterOrDigit && !isFunctionKey)
+        {
+            ShowHint("Use a letter, a digit or an F-key");
+            return;
+        }
+
+        // A plain letter or digit would fire while typing in chat; require a modifier for those
+        if (isLetterOrDigit && modifiers == ModifierKeys.None)
+        {
+            ShowHint("Add Ctrl, Alt or Shift so the hotkey doesn't fire while you type");
+            return;
+        }
+
+        _modifiers = modifiers;
+        _key = key;
+        StopCapture(null);
+    }
+
+    private void StopCapture(string? hint)
+    {
+        _capturing = false;
+        ShowHotkey();
+        ShowHint(hint);
+    }
+
+    private void ShowHotkey()
+    {
+        HotkeyBoxText.Text = HotkeyManager.Display(_modifiers, _key);
+        HotkeyBoxText.Foreground = (System.Windows.Media.Brush)FindResource("AccentText");
+    }
+
+    private void ShowHint(string? text)
+    {
+        HotkeyHint.Text = text ?? "";
+        HotkeyHint.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // ---- Save / cancel ---------------------------------------------------------------
+
+    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.HotkeyModifier = HotkeyManager.ModifierToSetting(_modifiers);
+        _settings.HotkeyKey = _key.ToString();
+        _settings.OnlyInWarframe = OnlyInWarframeCheckBox.IsChecked ?? true;
         _settings.DebugMode = DebugModeCheckBox.IsChecked ?? false;
 
         _settingsManager.SaveSettings(_settings);
 
         DialogResult = true;
-        Close();
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = false;
-        Close();
     }
 }
