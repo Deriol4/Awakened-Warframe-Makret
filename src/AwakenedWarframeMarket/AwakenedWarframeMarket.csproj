@@ -10,7 +10,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>AwakenedWarframeMarket</AssemblyName>
     <RootNamespace>AwakenedWarframeMarket</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>0.0.1</Version>
     <Authors>Deriol4</Authors>
     <Description>Warframe Market price checker overlay</Description>
   </PropertyGroup>

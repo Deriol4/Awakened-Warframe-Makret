@@ -2,6 +2,8 @@
 
 Check what an item is worth on [warframe.market](https://warframe.market) without leaving the game: hover an item, press a key, and the sellers show up in an overlay next to it.
 
+**[⬇ Download the latest version](https://github.com/Deriol4/Awakened-Warframe-Makret/releases/latest)**
+
 ## Features
 
 - **One key**: hover an item in your inventory or on a vendor screen (like Nightwave offerings) and press `Alt+X` (you can change it)
@@ -17,17 +19,29 @@ Check what an item is worth on [warframe.market](https://warframe.market) withou
 ## Requirements
 
 - Windows 10 or 11, 64-bit
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (x64)
-- [Microsoft Visual C++ Redistributable (x64)](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist): text recognition needs it. Most PCs with games already have it
+- [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe): text recognition needs it. Most PCs with games already have it
 - Warframe in **windowed** or **borderless fullscreen** mode: Windows can't show other windows on top of exclusive fullscreen
 - Warframe interface language set to **English**: names are read from the screen and looked up in the English item list
 - PC prices only, for now
 
 ## Installation
 
-1. Download the latest release (or [build from source](#building-from-source))
-2. Extract it to any folder
+1. Download the zip from the [latest release](https://github.com/Deriol4/Awakened-Warframe-Makret/releases/latest)
+2. Extract it to any folder, for example `C:\Games\AwakenedWarframeMarket`
 3. Run `AwakenedWarframeMarket.exe`. Running it again just brings the open copy to the front
+
+.NET is included in the zip, there's nothing else to install. To remove the app, delete its folder (and `%APPDATA%\AwakenedWarframeMarket` with the settings).
+
+### "Windows protected your PC"
+
+The app isn't code-signed yet (that's in progress), so on the first launch Windows SmartScreen shows a blue warning. Click **More info**, then **Run anyway**. This is needed only once.
+
+## Is it safe?
+
+- **Open source.** All the code is in this repository, and it's small enough to read through
+- **Built by GitHub, not on a PC.** Release zips are built by [GitHub Actions](.github/workflows/release.yml) straight from this code, with a public build log. Each release lists the zip's SHA-256, and you can check that a zip really came from that build: `gh attestation verify <zip> --repo Deriol4/Awakened-Warframe-Makret`
+- **Doesn't touch the game.** No memory reading, no injected code, no key presses or clicks sent to Warframe. It only takes a screenshot around the cursor when you press the hotkey, the same way a screenshot tool would
+- **Private.** The screenshot stays in memory and is thrown away after reading. The app only connects to warframe.market, collects nothing about you, writes nothing but its settings file and doesn't need admin rights
 
 ## Usage
 
@@ -94,6 +108,8 @@ cd Awakened-Warframe-Makret
 dotnet build
 dotnet run --project src/AwakenedWarframeMarket
 ```
+
+To publish a release, push a version tag (`git tag v1.0.1` then `git push origin v1.0.1`). GitHub Actions builds the zip and creates a draft release to review and publish.
 
 ## How it works
 
