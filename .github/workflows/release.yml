@@ -1,0 +1,60 @@
+# Builds the Windows release on GitHub's servers when a version tag is pushed:
+#   git tag v1.0.0
+#   git push origin v1.0.0
+# The result is a draft release with the zip, its SHA-256 and a build attestation.
+# Check the draft on the Releases page, add what's new, then press Publish.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write      # create the release
+  id-token: write      # sign the build attestation
+  attestations: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          dotnet publish src/AwakenedWarframeMarket/AwakenedWarframeMarket.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:Version=$version `
+            -o AwakenedWarframeMarket
+
+      - name: Pack
+        shell: pwsh
+        run: |
+          $zip = "AwakenedWarframeMarket-${{ github.ref_name }}-win-x64.zip"
+          Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.md AwakenedWarframeMarket/
+          Compress-Archive -Path AwakenedWarframeMarket -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $zip" | Out-File -Encoding ascii "$zip.sha256"
+          (Get-Content .github/release-notes.md -Raw).Replace('{{ZIP}}', $zip).Replace('{{SHA256}}', $hash) |
+            Out-File -Encoding utf8 notes.md
+          "ZIP=$zip" >> $env:GITHUB_ENV
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ env.ZIP }}
+
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" "$env:ZIP" "$env:ZIP.sha256" `
+            --draft --title "${{ github.ref_name }}" --notes-file notes.md
