@@ -24,7 +24,6 @@ public partial class SettingsWindow : Window
         _modifiers = HotkeyManager.ParseModifier(settings.HotkeyModifier);
         _key = HotkeyManager.ParseKey(settings.HotkeyKey);
         OnlyInWarframeCheckBox.IsChecked = settings.OnlyInWarframe;
-        DebugModeCheckBox.IsChecked = settings.DebugMode;
 
         ShowHotkey();
     }
@@ -119,7 +118,6 @@ public partial class SettingsWindow : Window
         _settings.HotkeyModifier = HotkeyManager.ModifierToSetting(_modifiers);
         _settings.HotkeyKey = _key.ToString();
         _settings.OnlyInWarframe = OnlyInWarframeCheckBox.IsChecked ?? true;
-        _settings.DebugMode = DebugModeCheckBox.IsChecked ?? false;
 
         _settingsManager.SaveSettings(_settings);
 

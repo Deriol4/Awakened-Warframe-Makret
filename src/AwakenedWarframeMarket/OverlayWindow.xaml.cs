@@ -21,8 +21,6 @@ namespace AwakenedWarframeMarket;
 /// </summary>
 public partial class OverlayWindow : Window
 {
-    private const string DefaultTopBarText = "PC · warframe.market";
-
     private readonly WarframeMarketAPI _api;
     private readonly Dictionary<string, List<MarketOrder>> _orderCache = new();
 
@@ -69,9 +67,6 @@ public partial class OverlayWindow : Window
         ShowPanel(ErrorPanel);
         ErrorText.Text = message;
     }
-
-    /// <summary>Debug Mode: show what OCR read in the top bar.</summary>
-    public void SetDebugNote(string? note) => TopBarText.Text = string.IsNullOrEmpty(note) ? DefaultTopBarText : note;
 
     /// <summary>Let the user type the name when OCR could not read it or no item matched.</summary>
     public void ShowSearch(string ocrText, string title)

@@ -82,13 +82,6 @@
                         <TextBlock Text="Other apps can use the same keys when you're not in the game" Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                 </CheckBox>
-
-                <CheckBox x:Name="DebugModeCheckBox" Style="{StaticResource DarkCheckBox}" Margin="0,14,0,0">
-                    <StackPanel>
-                        <TextBlock Text="Debug mode"/>
-                        <TextBlock Text="Saves what was captured and read to the debug folder next to the app" Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </CheckBox>
             </StackPanel>
         </DockPanel>
     </Border>

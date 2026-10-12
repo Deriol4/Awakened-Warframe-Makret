@@ -53,7 +53,7 @@ public partial class MainWindow : Window
             await _ocrService.InitializeAsync();
 
             var screenCapture = new ScreenCapture();
-            _priceCheckService = new PriceCheckService(screenCapture, _ocrService, _marketApi, () => _settings.DebugMode);
+            _priceCheckService = new PriceCheckService(screenCapture, _ocrService, _marketApi);
             _ready = true;
 
             // Take the hotkey only while Warframe (or this app) is in front

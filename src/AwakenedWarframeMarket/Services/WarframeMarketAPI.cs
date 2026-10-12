@@ -11,9 +11,7 @@ namespace AwakenedWarframeMarket.Services;
 
 /// <summary>Result of looking up OCR text in the market catalogue.</summary>
 /// <param name="Method">"exact", "fuzzy" or "unique-partial" - how the item was found.</param>
-/// <param name="Distance">Edit distance for fuzzy matches, otherwise null.</param>
-/// <param name="Alternatives">Closest candidates, for the debug dump.</param>
-public record ItemMatch(MarketItem Item, string Method, int? Distance, List<string> Alternatives);
+public record ItemMatch(MarketItem Item, string Method);
 
 public class WarframeMarketAPI
 {
@@ -74,7 +72,7 @@ public class WarframeMarketAPI
         // 1. Exact (ignoring case and punctuation)
         var exact = items.FirstOrDefault(x => x.Key == query);
         if (exact != null)
-            return new ItemMatch(exact.Item, "exact", 0, new List<string>());
+            return new ItemMatch(exact.Item, "exact");
 
         // 2. Closest by edit distance. The limit is ~20% of the text length: enough for a few OCR slips,
         //    too small to turn "... Systems Blueprint" into a different item.
@@ -84,19 +82,18 @@ public class WarframeMarketAPI
             .Select(x => new { x.Item, Distance = LevenshteinDistance(query, x.Key) })
             .OrderBy(x => x.Distance)
             .ThenBy(x => x.Item.Name.Length)
-            .Take(5)
+            .Take(1)
             .ToList();
 
         if (ranked.Count > 0 && ranked[0].Distance <= maxDistance)
         {
-            var alternatives = ranked.Select(r => $"{r.Item.Name} (distance {r.Distance})").ToList();
-            return new ItemMatch(ranked[0].Item, "fuzzy", ranked[0].Distance, alternatives);
+            return new ItemMatch(ranked[0].Item, "fuzzy");
         }
 
         // 3. OCR lost part of a long name: accept a containing name only if exactly one item contains the text
         var containing = items.Where(x => x.Key.Contains(query, StringComparison.Ordinal)).Take(2).ToList();
         if (containing.Count == 1)
-            return new ItemMatch(containing[0].Item, "unique-partial", null, new List<string>());
+            return new ItemMatch(containing[0].Item, "unique-partial");
 
         return null;
     }

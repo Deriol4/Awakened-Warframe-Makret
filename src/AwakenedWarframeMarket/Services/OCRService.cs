@@ -14,21 +14,6 @@ namespace AwakenedWarframeMarket.Services;
 /// <summary>One text line found by Tesseract. RejectedReason is null when the line is usable.</summary>
 public record OcrLine(string Text, Rectangle Bounds, float Confidence, string? RejectedReason = null);
 
-public class OcrResult
-{
-    /// <summary>Item name assembled from all lines of the chosen text block ("" if nothing was found).</summary>
-    public string Name { get; init; } = "";
-
-    /// <summary>Every line Tesseract found, including the ones that were rejected (see OcrLine.RejectedReason).</summary>
-    public List<OcrLine> Lines { get; init; } = new();
-
-    /// <summary>Bounding box of the chosen block, in the coordinates of the processed image.</summary>
-    public Rectangle? ChosenBounds { get; init; }
-
-    /// <summary>Image that was fed to Tesseract. Only set when keepProcessedImage = true; the caller disposes it.</summary>
-    public Bitmap? ProcessedImage { get; init; }
-}
-
 public class OCRService : IDisposable
 {
     // Lines below this confidence are treated as OCR hallucinations (garbage like "WAL T -").
@@ -70,38 +55,18 @@ public class OCRService : IDisposable
         }
     }
 
-    public string RecognizeItemName(Bitmap image) => Recognize(image, keepProcessedImage: false).Name;
-
-    public OcrResult Recognize(Bitmap image, bool keepProcessedImage)
+    /// <summary>The item name under the cursor (the capture's center), or "" if nothing readable was found.</summary>
+    public string RecognizeItemName(Bitmap image)
     {
         if (_engine == null)
             throw new InvalidOperationException("OCR engine not initialized. Call InitializeAsync first.");
 
-        var processed = PreprocessImage(image);
-        var keep = false;
+        using var processed = PreprocessImage(image);
+        using var pix = BitmapToPix(processed);
+        using var page = _engine.Process(pix);
 
-        try
-        {
-            using var pix = BitmapToPix(processed);
-            using var page = _engine.Process(pix);
-
-            var lines = ReadLines(page);
-            var block = PickItemNameBlock(lines, processed.Width, processed.Height);
-
-            keep = keepProcessedImage;
-            return new OcrResult
-            {
-                Name = block?.Name ?? "",
-                Lines = lines,
-                ChosenBounds = block?.Bounds,
-                ProcessedImage = keepProcessedImage ? processed : null
-            };
-        }
-        finally
-        {
-            if (!keep)
-                processed.Dispose();
-        }
+        var lines = ReadLines(page);
+        return PickItemNameBlock(lines, processed.Width, processed.Height)?.Name ?? "";
     }
 
     private Bitmap PreprocessImage(Bitmap original)
