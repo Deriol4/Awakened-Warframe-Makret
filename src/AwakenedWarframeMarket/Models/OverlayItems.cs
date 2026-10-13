@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using AwakenedWarframeMarket.Services;
 
 namespace AwakenedWarframeMarket.Models;
 
@@ -47,9 +48,9 @@ public class OrderRow : Observable
     private static string BuildDetailText(MarketOrder order, MarketItem item)
     {
         var parts = new List<string>();
-        if (item.HasSubtypes) parts.Add(string.IsNullOrEmpty(order.Subtype) ? "-" : MarketItem.SubtypeLabel(order.Subtype));
+        if (item.HasSubtypes) parts.Add(string.IsNullOrEmpty(order.Subtype) ? "-" : L.SubtypeName(order.Subtype) ?? MarketItem.SubtypeLabel(order.Subtype));
         if (item.HasRanks) parts.Add(order.Rank != null ? $"{order.Rank}/{item.MaxRank}" : "-");
-        if (item.HasCharges) parts.Add(order.Charges != null ? $"{order.Charges} ch" : "-");
+        if (item.HasCharges) parts.Add(order.Charges != null ? $"{order.Charges} {L.ChargesShort}" : "-");
         if (item.HasStars) parts.Add($"{order.AmberStars ?? 0}+{order.CyanStars ?? 0}★");
         return parts.Count == 0 ? "-" : string.Join(" · ", parts);
     }
@@ -60,7 +61,7 @@ public class OrderRow : Observable
     public string Quantity => Order.Quantity.ToString();
     public string User => Order.User?.IngameName ?? "";
     public string Status => Order.User?.Status ?? "offline";
-    public string StatusLabel => Status switch { "ingame" => "In game", "online" => "Online", _ => "Offline" };
+    public string StatusLabel => Status switch { "ingame" => L.InGame, "online" => L.Online, _ => L.Offline };
     public bool IsOffline => Status != "ingame" && Status != "online";
     public string Listed => FormatAgo(Order.CreatedAt);
 
@@ -86,18 +87,12 @@ public class OrderRow : Observable
         }
     }
 
-    public string CopyLabel => IsCopied ? "Copied" : "Buy";
-    public string CopyTooltip => $"Copy whisper to {User}";
+    public string CopyLabel => IsCopied ? L.Copied : L.Buy;
+    public string CopyTooltip => L.CopyWhisperTo(User);
 
     public static string FormatAgo(DateTimeOffset time)
     {
-        var diff = DateTimeOffset.UtcNow - time;
-        if (diff.TotalMinutes < 1) return "just now";
-        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
-        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
-        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
-        if (diff.TotalDays < 365) return $"{(int)(diff.TotalDays / 30)}mo ago";
-        return $"{(int)(diff.TotalDays / 365)}y ago";
+        return L.Ago(DateTimeOffset.UtcNow - time);
     }
 }
 
@@ -117,7 +112,7 @@ public class SetPart : Observable
     }
 
     public MarketItem Item { get; }
-    public string Name => Item.Name;
+    public string Name => Item.DisplayName;
 
     // The set shows its own picture. Parts share that same picture on warframe.market, so for them only
     // the part's type icon (blueprint, neuroptics, ...) is used; without one the text label is shown.
@@ -174,7 +169,7 @@ public class Suggestion : Observable
     public Suggestion(MarketItem item) => Item = item;
 
     public MarketItem Item { get; }
-    public string Name => Item.Name;
+    public string Name => Item.DisplayName;
 
     public bool IsSelected
     {

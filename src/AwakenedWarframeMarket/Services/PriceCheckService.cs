@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Threading.Tasks;
 
@@ -22,7 +23,39 @@ public class PriceCheckService
         _marketApi = marketApi;
     }
 
-    /// <summary>Called on the UI thread when the hotkey is pressed.</summary>
+    /// <summary>Called on the UI thread when the search hotkey is pressed: the overlay opens in the search.</summary>
+    public async Task OpenSearchAsync()
+    {
+        if (_capturing)
+            return;
+
+        _capturing = true;
+        try
+        {
+            if (_current != null)
+            {
+                _current.Close();
+                _current = null;
+                await Task.Delay(60);
+            }
+        }
+        finally
+        {
+            _capturing = false;
+        }
+
+        var overlay = new OverlayWindow(_marketApi);
+        _current = overlay;
+        overlay.Closed += (_, _) =>
+        {
+            if (_current == overlay)
+                _current = null;
+        };
+        overlay.ShowFreeSearch();
+        overlay.Show();
+    }
+
+    /// <summary>Called on the UI thread when the price check hotkey is pressed.</summary>
     public async Task CheckPriceAsync()
     {
         if (_capturing)
@@ -45,7 +78,7 @@ public class PriceCheckService
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"Couldn't capture the screen: {ex.Message}", "Awakened Warframe Market");
+            System.Windows.MessageBox.Show(L.CouldntCaptureScreen(ex.Message), "Awakened Warframe Market");
             return;
         }
         finally
@@ -70,38 +103,50 @@ public class PriceCheckService
             if (_current == overlay)
                 _current = null;
         };
-        overlay.ShowLoading("Reading the item under the cursor", "");
+        overlay.ShowLoading(L.ReadingItem, "");
         overlay.Show();
 
         try
         {
-            // OCR in the background; the screenshot only lives in memory and is disposed right after.
+            // The screenshot only lives in memory and is disposed right after reading.
             // If another check replaces this overlay meanwhile, the overlay ignores the late result.
-            var itemName = await Task.Run(() =>
+            ItemMatch? match = null;
+            string guess = "";
+            using (capture)
             {
-                using (capture)
-                    return _ocrService.RecognizeItemName(capture.Image, capture.Cursor);
-            });
+                using var prepared = await Task.Run(() => OCRService.PrepareImage(capture));
 
-            if (string.IsNullOrWhiteSpace(itemName))
-            {
-                overlay.ShowSearch("", "Couldn't read the item name");
-                return;
+                // A second, slower reading only when the first finds no item
+                foreach (var mode in OCRService.Passes)
+                {
+                    // Both readings of this pass go to the matcher together
+                    var candidates = new List<NameCandidate>();
+                    foreach (var scale in OCRService.Scales)
+                    {
+                        var read = await Task.Run(() => _ocrService.ReadCandidates(prepared, capture.Cursor, mode, scale));
+                        if (guess.Length == 0)
+                            guess = read.BestGuess;
+                        candidates.AddRange(read.Candidates);
+                    }
+                    if (candidates.Count == 0)
+                        continue;
+
+                    overlay.ShowLoading(L.LookingUpItem, guess);
+                    match = await _marketApi.FindBestMatchAsync(candidates);
+                    if (match != null || !_marketApi.CatalogueLoaded)
+                        break;
+                }
             }
-
-            overlay.ShowLoading("Looking up the item", itemName);
-
-            var match = await _marketApi.FindBestMatchAsync(itemName);
 
             if (match == null && !_marketApi.CatalogueLoaded)
             {
-                overlay.ShowError("Couldn't reach warframe.market. Check your internet connection and try again.");
+                overlay.ShowError(L.CouldntReachMarket);
                 return;
             }
 
             if (match == null)
             {
-                overlay.ShowSearch(itemName, "Couldn't match the name");
+                overlay.ShowSearch(guess, guess.Length == 0 ? L.CouldntReadName : L.NotFoundOnMarket);
                 return;
             }
 

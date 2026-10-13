@@ -77,14 +77,24 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Let the user type the name when OCR could not read it or no item matched.</summary>
-    public void ShowSearch(string ocrText, string title)
+    public void ShowSearch(string ocrText, string title) => ShowSearch(ocrText, title, fromScreen: true);
+
+    /// <summary>The search on its own, opened by the search hotkey: find any item, not only one on screen.</summary>
+    public void ShowFreeSearch() => ShowSearch("", L.FindAnItem, fromScreen: false);
+
+    private void ShowSearch(string ocrText, string title, bool fromScreen)
     {
         _version++;
         if (_isClosed)
             return;
         ShowPanel(SearchPanel);
         SearchTitle.Text = title;
-        SearchOcrRun.Text = string.IsNullOrWhiteSpace(ocrText) ? "nothing" : $"“{ocrText}”";
+        SearchOcrLine.Visibility = fromScreen ? Visibility.Visible : Visibility.Collapsed;
+        // Read cleanly but not on the market: most likely an item that can't be traded
+        SearchHint.Visibility = fromScreen && !string.IsNullOrWhiteSpace(ocrText) ? Visibility.Visible : Visibility.Collapsed;
+        SearchLabel.Margin = new Thickness(0, fromScreen ? 14 : 10, 0, 6);
+        SearchPlaceholder.Text = fromScreen ? L.TypeToCorrect : L.TypeAnyPart;
+        SearchOcrRun.Text = string.IsNullOrWhiteSpace(ocrText) ? L.Nothing : $"“{ocrText}”";
         SearchBox.Text = ocrText;
         SearchBox.SelectAll();
 
@@ -105,7 +115,7 @@ public partial class OverlayWindow : Window
             return;
 
         int version = ++_version;
-        ShowLoading("Loading sellers", item.Name);
+        ShowLoading(L.LoadingSellers, item.DisplayName);
 
         try
         {
@@ -123,7 +133,7 @@ public partial class OverlayWindow : Window
         catch (Exception ex)
         {
             if (version == _version)
-                ShowError($"Couldn't load sellers for {item.Name}.\n{FriendlyError.Describe(ex)}");
+                ShowError(L.CouldntLoadSellersFor(item.DisplayName, FriendlyError.Describe(ex)));
         }
     }
 
@@ -292,7 +302,7 @@ public partial class OverlayWindow : Window
         _rows = new List<OrderRow>();
         RowsList.ItemsSource = null;
         ClearStats();
-        ShowListMessage("Loading sellers…");
+        ShowListMessage(L.LoadingSellersDots);
 
         try
         {
@@ -304,7 +314,7 @@ public partial class OverlayWindow : Window
         catch (Exception ex)
         {
             if (version == _version)
-                ShowListMessage($"Couldn't load sellers.\n{FriendlyError.Describe(ex)}");
+                ShowListMessage(L.CouldntLoadSellers(FriendlyError.Describe(ex)));
         }
     }
 
@@ -334,29 +344,29 @@ public partial class OverlayWindow : Window
     private void ClearStats()
     {
         StatLow.Text = StatMedian.Text = StatTotal.Text = StatInGame.Text = "—";
-        FilterAllButton.Content = "All";
-        FilterOnlineButton.Content = "Online";
-        FilterInGameButton.Content = "In game";
+        FilterAllButton.Content = L.All;
+        FilterOnlineButton.Content = L.Online;
+        FilterInGameButton.Content = L.InGame;
         UpdateFooter();
     }
 
     private void SetHeader(MarketItem item)
     {
-        TitleText.Text = item.Name;
-        TitleText.ToolTip = item.Name;
-        DucatsText.Text = item.Ducats is > 0 ? $"{item.Ducats} ducats" : "";
+        TitleText.Text = item.DisplayName;
+        TitleText.ToolTip = item.DisplayName;
+        DucatsText.Text = item.Ducats is > 0 ? L.Ducats(item.Ducats.Value) : "";
 
         var rankVisibility = item.HasRanks ? Visibility.Visible : Visibility.Collapsed;
-        SubtitleText.Text = item.HasRanks ? $"Ranks 0–{item.MaxRank}" : "";
+        SubtitleText.Text = item.HasRanks ? L.Ranks(item.MaxRank!.Value) : "";
         SubtitleText.Visibility = rankVisibility;
         RankPanel.Visibility = rankVisibility;
         SortRankOption.Visibility = rankVisibility;
 
         DetailHeader.Visibility = item.HasDetails ? Visibility.Visible : Visibility.Collapsed;
         DetailHeader.Width = OrderRow.DetailColumnWidth(item);
-        DetailHeader.Text = item.HasRanks && !item.HasSubtypes && !item.HasCharges && !item.HasStars ? "RANK"
-            : item.HasSubtypes && !item.HasRanks && !item.HasCharges && !item.HasStars ? "TYPE"
-            : "DETAILS";
+        DetailHeader.Text = item.HasRanks && !item.HasSubtypes && !item.HasCharges && !item.HasStars ? L.RankHeader
+            : item.HasSubtypes && !item.HasRanks && !item.HasCharges && !item.HasStars ? L.TypeHeader
+            : L.DetailsHeader;
 
         BuildVariantChips(item);
     }
@@ -369,12 +379,12 @@ public partial class OverlayWindow : Window
         if (!item.HasSubtypes)
             return;
 
-        VariantLabel.Text = item.Subtypes!.Any(s => s is "intact" or "radiant") ? "Refinement" : "Type";
+        VariantLabel.Text = item.Subtypes!.Any(s => s is "intact" or "radiant") ? L.Refinement : L.TypeLabel;
         foreach (var subtype in item.Subtypes!.Cast<string?>().Append(null))
         {
             var chip = new Button
             {
-                Content = subtype == null ? "Any" : MarketItem.SubtypeLabel(subtype),
+                Content = subtype == null ? L.Any : L.SubtypeName(subtype) ?? MarketItem.SubtypeLabel(subtype),
                 Tag = subtype ?? AnySubtype,
                 Style = (Style)FindResource("ChipButton"),
                 Margin = new Thickness(0, 2, 4, 2),
@@ -412,20 +422,20 @@ public partial class OverlayWindow : Window
         StatTotal.Text = matching.Count.ToString();
         StatInGame.Text = inGame.Count.ToString();
 
-        FilterAllButton.Content = $"All {matching.Count}";
-        FilterOnlineButton.Content = $"Online {online.Count}";
-        FilterInGameButton.Content = $"In game {inGame.Count}";
+        FilterAllButton.Content = $"{L.All} {matching.Count}";
+        FilterOnlineButton.Content = $"{L.Online} {online.Count}";
+        FilterInGameButton.Content = $"{L.InGame} {inGame.Count}";
         StyleSegment(FilterAllButton, _filter == "all");
         StyleSegment(FilterOnlineButton, _filter == "online");
         StyleSegment(FilterInGameButton, _filter == "ingame");
 
         if (_item.HasRanks && max is int m)
         {
-            RankLabel.Text = _rank == null ? "Any rank" : $"Rank {_rank} of {m}";
-            RankHint.Text = _rank == null ? $"showing ranks 0–{m}"
-                : _rank == m ? "max rank"
-                : _rank == 0 ? "unranked"
-                : $"{m - _rank} below max";
+            RankLabel.Text = _rank == null ? L.AnyRank : L.RankOf(_rank.Value, m);
+            RankHint.Text = _rank == null ? L.ShowingRanks(m)
+                : _rank == m ? L.MaxRank
+                : _rank == 0 ? L.Unranked
+                : L.BelowMax(m - _rank.Value);
             StyleChip(RankAnyButton, _rank == null);
             StyleChip(RankMaxButton, _rank == m);
         }
@@ -470,11 +480,11 @@ public partial class OverlayWindow : Window
         if (_rows.Count > 0)
             ShowListMessage(null);
         else if (matching.Count == 0 && (_rank != null || _subtype != null))
-            ShowListMessage("No sellers for this choice. Try Any.");
+            ShowListMessage(L.NoSellersForChoice);
         else if (matching.Count == 0)
-            ShowListMessage("Nobody is selling this item right now.");
+            ShowListMessage(L.NobodySelling);
         else
-            ShowListMessage("No sellers with this status right now.");
+            ShowListMessage(L.NoSellersWithStatus);
 
         UpdateFooter();
     }
@@ -495,10 +505,10 @@ public partial class OverlayWindow : Window
 
     private static string SortLabel(string sort) => sort switch
     {
-        "price-desc" => "Price, high first",
-        "rank" => "Rank, highest first",
-        "newest" => "Newest first",
-        _ => "Price, low first"
+        "price-desc" => L.PriceHighFirst,
+        "rank" => L.RankHighestFirst,
+        "newest" => L.NewestFirst,
+        _ => L.PriceLowFirst
     };
 
     private void ShowListMessage(string? message)
@@ -511,8 +521,8 @@ public partial class OverlayWindow : Window
     {
         var copied = _rows.FirstOrDefault(r => r.IsCopied);
         FooterNote.Text = copied != null
-            ? $"Whisper to {copied.User} copied, paste it in chat"
-            : "B copies the whisper for the selected seller";
+            ? L.WhisperCopied(copied.User)
+            : L.BCopiesWhisper;
         FooterNote.Foreground = Res(copied != null ? "AccentText" : "Muted");
     }
 
@@ -627,7 +637,7 @@ public partial class OverlayWindow : Window
 
         if (!TrySetClipboard(BuildWhisper(row.Order, _item)))
         {
-            FooterNote.Text = "Couldn't access the clipboard, try again";
+            FooterNote.Text = L.ClipboardBusy;
             FooterNote.Foreground = Res("AccentText");
             return;
         }
@@ -643,6 +653,7 @@ public partial class OverlayWindow : Window
     {
         // "Lith A1 Relic (Radiant)", "Corrosive Projection (rank 5)"
         var qualifier = item.OrderQualifier(order);
+        // Always in English, the same as warframe.market's own whisper, whatever the interface language
         var name = qualifier.Length == 0 ? item.Name : $"{item.Name} ({qualifier})";
         return $"/w {order.User?.IngameName} Hi! I want to buy: \"{name}\" for {order.Platinum} platinum. (warframe.market)";
     }
@@ -711,8 +722,8 @@ public partial class OverlayWindow : Window
 
         SuggestionList.ItemsSource = _suggestions;
         SuggestionEmpty.Text = _api.CatalogueLoaded
-            ? "No items match. Check the spelling."
-            : "Can't load the item list: no connection to warframe.market";
+            ? L.NoItemsMatch
+            : L.CantLoadItemList;
         SuggestionEmpty.Visibility = _suggestions.Count == 0 && text.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 

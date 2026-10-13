@@ -1,6 +1,7 @@
 <Window x:Class="AwakenedWarframeMarket.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:AwakenedWarframeMarket.Services"
         Title="Awakened Warframe Market"
         Width="420"
         SizeToContent="Height"
@@ -33,8 +34,8 @@
                 <DockPanel>
                     <Button DockPanel.Dock="Right"
                             Style="{StaticResource CaptionButton}"
-                            ToolTip="Exit"
-                            AutomationProperties.Name="Exit"
+                            ToolTip="{x:Static l:L.Exit}"
+                            AutomationProperties.Name="{x:Static l:L.Exit}"
                             Click="CloseButton_Click">
                         <Path Data="M2,2 L10,10 M10,2 L2,10" Width="12" Height="12"
                               Stroke="{StaticResource Muted}" StrokeThickness="1.4"
@@ -42,8 +43,8 @@
                     </Button>
                     <Button DockPanel.Dock="Right"
                             Style="{StaticResource CaptionButton}"
-                            ToolTip="Hide to tray"
-                            AutomationProperties.Name="Hide to tray"
+                            ToolTip="{x:Static l:L.HideToTray}"
+                            AutomationProperties.Name="{x:Static l:L.HideToTray}"
                             Click="MinimizeWindow_Click">
                         <Path Data="M2,6 L10,6" Width="12" Height="12"
                               Stroke="{StaticResource Muted}" StrokeThickness="1.4"
@@ -64,8 +65,8 @@
                     Padding="16,10">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                        <Button Style="{StaticResource OutlineButton}" Content="Settings" Margin="0,0,8,0" Click="SettingsButton_Click"/>
-                        <Button Style="{StaticResource OutlineButton}" Content="Hide to tray" Click="MinimizeButton_Click"/>
+                        <Button Style="{StaticResource OutlineButton}" Content="{x:Static l:L.Settings}" Margin="0,0,8,0" Click="SettingsButton_Click"/>
+                        <Button Style="{StaticResource OutlineButton}" Content="{x:Static l:L.HideToTray}" Click="MinimizeButton_Click"/>
                     </StackPanel>
                     <TextBlock x:Name="FooterText" Text="warframe.market · PC" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
                 </DockPanel>
@@ -83,8 +84,8 @@
                                  VerticalAlignment="Top"
                                  Fill="{StaticResource Muted}"/>
                         <StackPanel>
-                            <TextBlock x:Name="StatusTitle" Text="Starting…" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}"/>
-                            <TextBlock x:Name="StatusDetail" Text="Preparing text recognition" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="StatusTitle" Text="{x:Static l:L.Starting}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}"/>
+                            <TextBlock x:Name="StatusDetail" Text="{x:Static l:L.PreparingRecognition}" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
@@ -95,13 +96,23 @@
                         <TextBlock x:Name="HotkeyText" Text="Alt + X" FontWeight="SemiBold" Foreground="{StaticResource AccentText}"/>
                     </Border>
                     <StackPanel>
-                        <TextBlock Text="Price check" Foreground="{StaticResource TextStrong}"/>
-                        <TextBlock Text="Hover an item in Warframe and press the hotkey" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                        <TextBlock Text="{x:Static l:L.PriceCheck}" Foreground="{StaticResource TextStrong}"/>
+                        <TextBlock Text="{x:Static l:L.PriceCheckHint}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </DockPanel>
+
+                <DockPanel Margin="2,14,2,0">
+                    <Border DockPanel.Dock="Right" Style="{StaticResource Kbd}">
+                        <TextBlock x:Name="SearchHotkeyText" Text="Alt + F" FontWeight="SemiBold" Foreground="{StaticResource AccentText}"/>
+                    </Border>
+                    <StackPanel>
+                        <TextBlock Text="{x:Static l:L.Search}" Foreground="{StaticResource TextStrong}"/>
+                        <TextBlock Text="{x:Static l:L.SearchHint}" Style="{StaticResource Caption}" Margin="0,2,0,0"/>
                     </StackPanel>
                 </DockPanel>
 
                 <!-- Overlay keys -->
-                <TextBlock Text="IN THE OVERLAY" Style="{StaticResource Caption}" Margin="2,20,0,8"/>
+                <TextBlock Text="{x:Static l:L.InTheOverlay}" Style="{StaticResource Caption}" Margin="2,20,0,8"/>
                 <Grid Margin="2,0,2,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="52"/>
@@ -115,15 +126,15 @@
                     <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Kbd}" HorizontalAlignment="Left" Padding="6,1" Margin="0,0,0,6">
                         <TextBlock Text="B" FontSize="11" Foreground="{StaticResource Soft}"/>
                     </Border>
-                    <TextBlock Grid.Row="0" Grid.Column="1" Text="Copy the whisper for the selected seller" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Static l:L.KeyCopyWhisper}" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,6"/>
                     <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource Kbd}" HorizontalAlignment="Left" Padding="6,1" Margin="0,0,0,6">
                         <TextBlock Text="T" FontSize="11" Foreground="{StaticResource Soft}"/>
                     </Border>
-                    <TextBlock Grid.Row="1" Grid.Column="1" Text="Open the item on warframe.market" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Static l:L.KeyOpenOnSite}" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,6"/>
                     <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource Kbd}" HorizontalAlignment="Left" Padding="6,1">
                         <TextBlock Text="Esc" FontSize="11" Foreground="{StaticResource Soft}"/>
                     </Border>
-                    <TextBlock Grid.Row="2" Grid.Column="1" Text="Close (it also closes when you go back to the game)" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Static l:L.KeyClose}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
                 </Grid>
             </StackPanel>
         </DockPanel>

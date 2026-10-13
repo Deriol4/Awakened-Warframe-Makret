@@ -131,6 +131,15 @@ public class MarketItem
     [JsonIgnore]
     public string Name => English?.Name is { Length: > 0 } n ? n : I18N?.Values.Select(v => v.Name).FirstOrDefault(x => !string.IsNullOrEmpty(x)) ?? "";
 
+    /// <summary>Russian name from the catalogue (it's loaded with both languages), or null.</summary>
+    [JsonIgnore]
+    public string? RussianName =>
+        I18N != null && I18N.TryGetValue("ru", out var ru) && !string.IsNullOrEmpty(ru.Name) ? ru.Name : null;
+
+    /// <summary>Name in the interface language. <see cref="Name"/> stays English for whispers and matching.</summary>
+    [JsonIgnore]
+    public string DisplayName => AwakenedWarframeMarket.Services.L.IsRussian && RussianName != null ? RussianName : Name;
+
     [JsonIgnore]
     public string? ThumbUrl
     {

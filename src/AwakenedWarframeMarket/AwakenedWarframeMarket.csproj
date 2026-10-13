@@ -12,6 +12,8 @@
     <RootNamespace>AwakenedWarframeMarket</RootNamespace>
     <Version>0.0.1</Version>
     <Authors>Deriol4</Authors>
+    <Product>Awakened Warframe Market</Product>
+    <Copyright>Copyright (c) 2026 Deriol4</Copyright>
     <Description>Warframe Market price checker overlay</Description>
   </PropertyGroup>
 
@@ -22,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="tessdata\eng.traineddata">
+    <None Update="tessdata\*.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

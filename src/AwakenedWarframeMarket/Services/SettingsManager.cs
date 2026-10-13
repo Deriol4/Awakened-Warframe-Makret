@@ -79,7 +79,7 @@ public class SettingsManager
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error saving settings: {ex.Message}");
-            return $"Couldn't save settings to {SettingsFolder}: {ex.Message}";
+            return L.CouldntSaveSettings(SettingsFolder, ex.Message);
         }
     }
 }

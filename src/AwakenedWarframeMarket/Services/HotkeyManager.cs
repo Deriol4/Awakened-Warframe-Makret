@@ -10,14 +10,22 @@ namespace AwakenedWarframeMarket.Services;
 public class HotkeyManager : IDisposable
 {
     private const int WM_HOTKEY = 0x0312;
-    private const int HOTKEY_ID = 9000;
     private const uint MOD_NOREPEAT = 0x4000;
 
     public const ModifierKeys DefaultModifiers = ModifierKeys.Alt;
     public const Key DefaultKey = Key.X;
 
+    // The manual search hotkey: Alt + F ("find"). Ctrl is crouch in Warframe, so Ctrl + F fires mid-mission.
+    public const ModifierKeys DefaultSearchModifiers = ModifierKeys.Alt;
+    public const Key DefaultSearchKey = Key.F;
+
+    // Each instance owns one global hotkey, told apart by this id in WM_HOTKEY
+    private readonly int _id;
+
+    public HotkeyManager(int id) => _id = id;
+
     /// <summary>
-    /// Why a combination can't be used as the price-check hotkey, or null if it's fine.
+    /// Why a combination can't be used as a hotkey, or null if it's fine.
     /// The hotkey is held while Warframe is in front, so it must not collide with typing or movement.
     /// </summary>
     public static string? ValidationError(ModifierKeys modifiers, Key key)
@@ -26,16 +34,16 @@ public class HotkeyManager : IDisposable
         bool functionKey = key is >= Key.F1 and <= Key.F12;
 
         if (!letterOrDigit && !functionKey)
-            return "Use a letter, a digit or an F-key";
+            return L.UseLetterDigitOrF;
         if (key == Key.F12)
-            return "F12 is reserved by Windows";
+            return L.F12Reserved;
         if (key == Key.F4 && modifiers.HasFlag(ModifierKeys.Alt))
-            return "Alt + F4 closes windows";
+            return L.AltF4Closes;
         if (letterOrDigit && !modifiers.HasFlag(ModifierKeys.Control) && !modifiers.HasFlag(ModifierKeys.Alt))
-            return "Add Ctrl or Alt: a letter alone or with Shift fires while you type in chat";
+            return L.AddCtrlOrAlt;
         if (key is Key.W or Key.A or Key.S or Key.D &&
             (modifiers.HasFlag(ModifierKeys.Control) || modifiers.HasFlag(ModifierKeys.Shift)))
-            return "Ctrl or Shift with W, A, S, D fires while you crouch or sprint in the game";
+            return L.NoMovementKeys;
         return null;
     }
 
@@ -72,7 +80,7 @@ public class HotkeyManager : IDisposable
         // Unregister existing hotkey
         if (_isRegistered)
         {
-            UnregisterHotKey(_windowHandle, HOTKEY_ID);
+            UnregisterHotKey(_windowHandle, _id);
             _isRegistered = false;
         }
 
@@ -85,7 +93,7 @@ public class HotkeyManager : IDisposable
 
         uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
 
-        _isRegistered = RegisterHotKey(_windowHandle, HOTKEY_ID, mod, vk);
+        _isRegistered = RegisterHotKey(_windowHandle, _id, mod, vk);
         return _isRegistered;
     }
 
@@ -94,14 +102,14 @@ public class HotkeyManager : IDisposable
     {
         if (_isRegistered && _windowHandle != IntPtr.Zero)
         {
-            UnregisterHotKey(_windowHandle, HOTKEY_ID);
+            UnregisterHotKey(_windowHandle, _id);
             _isRegistered = false;
         }
     }
 
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
+        if (msg == WM_HOTKEY && wParam.ToInt32() == _id)
         {
             _hotkeyAction?.Invoke();
             handled = true;
@@ -110,10 +118,10 @@ public class HotkeyManager : IDisposable
     }
 
     /// <summary>"Control", "Control+Shift", "Ctrl+Alt+Shift", "None" ...</summary>
-    public static ModifierKeys ParseModifier(string modifier)
+    public static ModifierKeys ParseModifier(string modifier, ModifierKeys fallback = DefaultModifiers)
     {
         if (string.IsNullOrWhiteSpace(modifier))
-            return DefaultModifiers;
+            return fallback;
 
         var result = ModifierKeys.None;
         foreach (var part in modifier.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -133,7 +141,7 @@ public class HotkeyManager : IDisposable
                 case "none":
                     break;
                 default:
-                    return DefaultModifiers; // unknown value in settings.json: fall back to the default
+                    return fallback; // unknown value in settings.json: fall back to the default
             }
         }
         return result;
@@ -157,11 +165,11 @@ public class HotkeyManager : IDisposable
         return string.IsNullOrEmpty(mods) ? keyText : $"{mods.Replace("+", " + ")} + {keyText}";
     }
 
-    public static Key ParseKey(string key)
+    public static Key ParseKey(string key, Key fallback = DefaultKey)
     {
         if (Enum.TryParse<Key>(key, true, out var result))
             return result;
-        return DefaultKey;
+        return fallback;
     }
 
     public static string ModifierToString(ModifierKeys modifiers)
@@ -179,7 +187,7 @@ public class HotkeyManager : IDisposable
         {
             if (_isRegistered && _windowHandle != IntPtr.Zero)
             {
-                UnregisterHotKey(_windowHandle, HOTKEY_ID);
+                UnregisterHotKey(_windowHandle, _id);
             }
             _source?.RemoveHook(HwndHook);
             _disposed = true;

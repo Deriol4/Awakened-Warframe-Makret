@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using AwakenedWarframeMarket.Services;
 
 namespace AwakenedWarframeMarket;
 
@@ -34,7 +35,7 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         TaskScheduler.UnobservedTaskException += (_, args) => args.SetObserved();
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-            MessageBox.Show($"Awakened Warframe Market has to close because of an unexpected error:\n\n{(args.ExceptionObject as Exception)?.Message}",
+            MessageBox.Show(L.MustClose((args.ExceptionObject as Exception)?.Message ?? ""),
                 "Awakened Warframe Market", MessageBoxButton.OK, MessageBoxImage.Error);
 
         // Closing the main window (not hiding it to the tray) exits the app
@@ -52,7 +53,7 @@ public partial class App : Application
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         e.Handled = true;
-        MessageBox.Show($"Something went wrong: {e.Exception.Message}\n\nThe app keeps running. If this repeats, restart it.",
+        MessageBox.Show(L.KeepsRunning(e.Exception.Message),
             "Awakened Warframe Market", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 

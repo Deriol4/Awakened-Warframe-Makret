@@ -7,7 +7,7 @@ Awakened Warframe Market includes or depends on the following components.
 | Tesseract .NET wrapper (NuGet `Tesseract` 5.2.0) | Apache License 2.0 | https://github.com/charlesw/tesseract |
 | Tesseract OCR engine (native DLLs shipped with the wrapper) | Apache License 2.0 | https://github.com/tesseract-ocr/tesseract |
 | Leptonica (native DLLs shipped with the wrapper) | BSD 2-Clause style (Leptonica license) | http://www.leptonica.org |
-| English recognition data `tessdata/eng.traineddata` | Apache License 2.0 | https://github.com/tesseract-ocr/tessdata |
+| English and Russian recognition data `tessdata/eng.traineddata`, `tessdata/rus.traineddata` | Apache License 2.0 | https://github.com/tesseract-ocr/tessdata |
 | Newtonsoft.Json 13.0.3 | MIT | https://github.com/JamesNK/Newtonsoft.Json |
 | System.Drawing.Common 8.0.0 | MIT | https://github.com/dotnet/winforms |
 

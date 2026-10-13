@@ -12,17 +12,17 @@ public static class FriendlyError
     public static string Describe(Exception ex) => ex switch
     {
         HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests } =>
-            "warframe.market is limiting requests right now. Try again in a minute.",
+            L.RateLimited,
         HttpRequestException { StatusCode: HttpStatusCode.NotFound } =>
-            "warframe.market doesn't have this item.",
+            L.ItemNotOnMarket,
         HttpRequestException { StatusCode: >= HttpStatusCode.InternalServerError } =>
-            "warframe.market is having problems right now. Try again later.",
+            L.MarketProblems,
         HttpRequestException =>
-            "Couldn't reach warframe.market. Check your internet connection.",
+            L.NoConnection,
         TaskCanceledException or TimeoutException =>
-            "warframe.market took too long to answer. Try again.",
+            L.TooSlow,
         JsonException =>
-            "warframe.market answered in a format this version doesn't understand. The app may need an update.",
-        _ => $"Something unexpected went wrong: {ex.Message}"
+            L.UnknownFormat,
+        _ => L.Unexpected(ex.Message)
     };
 }
